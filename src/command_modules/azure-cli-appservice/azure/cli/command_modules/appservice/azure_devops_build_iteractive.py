@@ -204,8 +204,17 @@ class AzureDevopsBuildInteractive(object):
              if service_endpoint.name == self.service_endpoint_name]
 
         if len(service_endpoint_match) != 1:
-            service_endpoint = self.adbp.create_service_endpoint(self.organization_name, self.project_name,
-                                                                 self.service_endpoint_name)
+            try:
+                service_endpoint = self.adbp.create_service_endpoint(
+                    self.organization_name, self.project_name, self.service_endpoint_name
+                )
+            except CalledProcessError:
+                self.logger.critical("""
+Failed to create pipeline service endpoint.
+Please check if you have Microsoft.Authorization/roleAssignments/write permissions in current subscription.
+You may use `az account set --subscription \"{SUBSCRIPTION_NAME}\"` to change your active subscription.
+""")
+                exit(1)
         else:
             service_endpoint = service_endpoint_match[0]
         return service_endpoint
@@ -279,7 +288,7 @@ class AzureDevopsBuildInteractive(object):
             self.logger.warning("We will try and create a new repository instead")
             succeeded = False
             while not succeeded:
-                repository_name = prompt('What would you like to call the new repository?')  # pylint: disable=line-too-long
+                repository_name = prompt('What would you like to call the new repository: ')  # pylint: disable=line-too-long
                 # Validate that the name does not already exist
                 repositories = self.adbp.list_repositories(self.organization_name, self.project_name)
                 repository_match = \
@@ -364,7 +373,7 @@ class AzureDevopsBuildInteractive(object):
                 self.logger.warning("The default repository associated with your project already contains a commit. There needs to be a clean repository.")  # pylint: disable=line-too-long
                 succeeded = False
                 while not succeeded:
-                    repository_name = prompt('We will create that repository. What would you like to call the new repository?')  # pylint: disable=line-too-long
+                    repository_name = prompt('We will create that repository. What would you like to call the new repository: ')  # pylint: disable=line-too-long
                     # Validate that the name does not already exist
                     repositories = self.adbp.list_repositories(self.organization_name, self.project_name)
                     repository_match = \
