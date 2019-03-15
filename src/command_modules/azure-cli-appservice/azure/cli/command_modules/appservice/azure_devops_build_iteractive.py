@@ -84,8 +84,6 @@ class AzureDevopsBuildInteractive(object):
         self.process_yaml()
         self.process_local_repository()
         self.process_remote_repository()
-
-        self.service_endpoint_name = self._get_service_endpoint_name()
         self.process_service_endpoint()
         self.process_extensions()
 
@@ -235,7 +233,6 @@ class AzureDevopsBuildInteractive(object):
         except Exception as e:
             remote_branches = None
         
-        print(remote_branches)
         remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
 
         # If repository has branches, we need to warn user for the push
@@ -259,51 +256,54 @@ class AzureDevopsBuildInteractive(object):
         self.build_definition_name += self.repository_name
         self.release_definition_name += self.repository_name
 
-    def process_extensions(self):
-        self.logger.info("Installing the required extensions for the build and release")
-        self.adbp.create_extension(self.organization_name, 'AzureAppServiceSetAppSettings', 'hboelman')
-        self.adbp.create_extension(self.organization_name, 'PascalNaber-Xpirit-CreateSasToken', 'pascalnaber')
-
     def process_service_endpoint(self):
-        service_endpoints = self.adbp.list_service_endpoints(self.organization_name, self.project_name)
-        service_endpoint_match = \
-            [service_endpoint for service_endpoint in service_endpoints
-             if service_endpoint.name == self.service_endpoint_name]
+        service_endpoints = self.adbp.get_service_endpoints(
+            self.organization_name, self.project_name, self.repository_name
+        )
 
-        if len(service_endpoint_match) != 1:
+        # If there is no matching service endpoint, we need to create a new one
+        if not service_endpoints:
             try:
                 service_endpoint = self.adbp.create_service_endpoint(
-                    self.organization_name, self.project_name, self.service_endpoint_name
+                    self.organization_name, self.project_name, self.repository_name
                 )
-            except Exception:
-                self.logger.critical("""
-Failed to create pipeline service endpoint.
-Please check if you have Microsoft.Authorization/roleAssignments/write permissions in current subscription.
-You may use `az account set --subscription \"{SUBSCRIPTION_NAME}\"` to change your active subscription.
-""")
+            except Exception as e:
+                self.logger.critical("Failed to create pipeline service endpoint.")
+                self.logger.critical("Please check if you have Microsoft.Authorization/roleAssignments/write permissions in current subscription.")
+                self.logger.critical("You may use `az account set --subscription \"{SUBSCRIPTION_NAME}\"` to change your active subscription.")
                 exit(1)
         else:
-            service_endpoint = service_endpoint_match[0]
-        return service_endpoint
+            service_endpoint = service_endpoints[0]
+            print("Detected service endpoint {name}".format(name=service_endpoint.name))
+        
+        self.service_endpoint_name = service_endpoint.name
+
+    def process_extensions(self):
+        print("Installing the required extensions for the build and release")
+        self.adbp.create_extension(self.organization_name, 'AzureAppServiceSetAppSettings', 'hboelman')
+        self.adbp.create_extension(self.organization_name, 'PascalNaber-Xpirit-CreateSasToken', 'pascalnaber')
 
     def process_build(self):
         # need to check if the build definition already exists
         build_definitions = self.adbp.list_build_definitions(self.organization_name, self.project_name)
-        build_definition_match = \
-            [build_definition for build_definition in build_definitions
-             if build_definition.name == self.build_definition_name]
+        build_definition_match = [
+            build_definition for build_definition in build_definitions
+            if build_definition.name == self.build_definition_name
+        ]
 
-        if len(build_definition_match) != 1:
+        if not build_definition_match:
             self.adbp.create_build_definition(self.organization_name, self.project_name,
                                               self.repository_name, self.build_definition_name,
                                               self.build_pool_name)
+        else:
+            print("Detected build definition {name}".format(name=self.build_definition_name))
 
         build = self.adbp.create_build_object(self.organization_name, self.project_name,
                                               self.build_definition_name, self.build_pool_name)
 
         url = "https://dev.azure.com/" + self.organization_name + "/" \
             + self.project_name + "/_build/results?buildId=" + str(build.id)
-        self.logger.info("To follow the build process go to %s", url)
+        print("To follow the build process go to {url}".format(url=url))
         self.build = build
 
     def process_release(self):
@@ -311,13 +311,13 @@ You may use `az account set --subscription \"{SUBSCRIPTION_NAME}\"` to change yo
         artifacts = []
         counter = 0
         while artifacts == []:
-            time.sleep(1.5)
-            self.logger.info("waiting for artifacts ... %s", counter)
+            time.sleep(5)
+            print("waiting for artifacts ... {counter}s".format(counter=counter))
             build = self._get_build_by_id(self.organization_name, self.project_name, self.build.id)
             if build.status == 'completed':
                 break
             artifacts = self.adbp.list_artifacts(self.organization_name, self.project_name, self.build.id)
-            counter += 1
+            counter += 5
 
         if build.result == 'failed':
             url = "https://dev.azure.com/" + self.organization_name + "/" \
@@ -325,18 +325,28 @@ You may use `az account set --subscription \"{SUBSCRIPTION_NAME}\"` to change yo
             self.logger.critical("Your build has failed")
             self.logger.critical("To view details on why your build has failed please go to %s", url)
             exit(1)
+        
+        # need to check if the release definition already exists
+        release_definitions = self.adbp.list_release_definitions(self.organization_name, self.project_name)
+        release_definition_match = [
+            release_definition for release_definition in release_definitions
+            if release_definition.name == self.release_definition_name
+        ]
 
-        self.adbp.create_release_definition(self.organization_name, self.project_name,
-                                            self.build_definition_name, self.artifact_name,
-                                            self.release_pool_name, self.service_endpoint_name,
-                                            self.release_definition_name, self.functionapp_type,
-                                            self.functionapp_name, self.storage_name,
-                                            self.resource_group_name, self.settings)
-        release = self.adbp.create_release(self.organization_name, self.project_name,
-                                           self.release_definition_name)
+        if not release_definition_match:
+            self.adbp.create_release_definition(self.organization_name, self.project_name,
+                                                self.build_definition_name, self.artifact_name,
+                                                self.release_pool_name, self.service_endpoint_name,
+                                                self.release_definition_name, self.functionapp_type,
+                                                self.functionapp_name, self.storage_name,
+                                                self.resource_group_name, self.settings)
+        else:
+            print("Detected release definition {name}".format(name=self.release_definition_name))
+        
+        release = self.adbp.create_release(self.organization_name, self.project_name, self.release_definition_name)
         url = "https://dev.azure.com/" + self.organization_name + "/" \
             + self.project_name + "/_releaseProgress?_a=release-environment-logs&releaseId=" + str(release.id)
-        self.logger.info("To follow the release process go to %s", url)
+        print("To follow the release process go to {url}".format(url=url))
         self.release = release
 
     def _select_functionapp(self):
@@ -428,12 +438,6 @@ You may use `az account set --subscription \"{SUBSCRIPTION_NAME}\"` to change yo
         organizations = self.adbp.list_organizations()
         return [organization for organization in organizations.value
                 if organization.accountName == organization_name][0]
-    
-    def _get_service_endpoint_name(self):
-        return "{org}/{proj}/_git/{repo}/pipeline".format(
-                org = self.organization_name,
-                proj = self.project_name,
-                repo = self.repository_name)
 
     def _create_organization(self):
         self.logger.info("Starting process to create a new Azure DevOps organization")

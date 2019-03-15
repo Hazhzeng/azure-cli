@@ -146,11 +146,17 @@ class AzureDevopsBuildProvider(object):  # pylint: disable=too-many-public-metho
         pool_manager = PoolManager(organization_name=organization_name, project_name=project_name, creds=self._creds)
         return pool_manager.list_pools()
 
-    def create_service_endpoint(self, organization_name, project_name, name):
+    def get_service_endpoints(self, organization_name, project_name, repository_name):
+        """Query a service endpoint detail"""
+        service_endpoint_manager = ServiceEndpointManager(organization_name=organization_name,
+                                                          project_name=project_name, creds=self._creds)
+        return service_endpoint_manager.get_service_endpoints(repository_name)
+
+    def create_service_endpoint(self, organization_name, project_name, repository_name):
         """Create a service endpoint to allow authentication via ARM service principal"""
         service_endpoint_manager = ServiceEndpointManager(organization_name=organization_name,
                                                           project_name=project_name, creds=self._creds)
-        return service_endpoint_manager.create_service_endpoint(name)
+        return service_endpoint_manager.create_service_endpoint(repository_name)
 
     def list_service_endpoints(self, organization_name, project_name):
         """List the different service endpoints in a project"""
