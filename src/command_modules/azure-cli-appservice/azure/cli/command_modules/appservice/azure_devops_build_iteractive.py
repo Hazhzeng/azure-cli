@@ -11,6 +11,7 @@ import json
 from knack.prompting import prompt_choice_list, prompt_y_n, prompt
 from azure_functions_devops_build.constants import (LINUX_CONSUMPTION, LINUX_DEDICATED, WINDOWS,
                                                     PYTHON, NODE, DOTNET, JAVA)
+from azure_functions_devops_build.exceptions import GitOperationException
 from .azure_devops_build_provider import AzureDevopsBuildProvider
 from .custom import list_function_app, show_webapp, get_app_settings
 
@@ -77,13 +78,14 @@ class AzureDevopsBuildInteractive(object):
 
         # Set up the default names for the rest of the things we need to create
         self.repository_name = self.project_name
-        self.service_endpoint_name = self.organization_name + self.project_name
-        self.build_definition_name = self.project_name + " INITIAL AZ CLI BUILD"
-        self.release_definition_name = self.project_name + " INITIAL AZ CLI RELEASE"
+        self.build_definition_name = "Initial az cli build {}.".format(self.project_name)
+        self.release_definition_name = "Initial az cli release {}.".format(self.project_name) 
 
         self.process_yaml()
-        self.process_repository()
+        self.process_local_repository()
+        self.process_remote_repository()
 
+        self.service_endpoint_name = self._get_service_endpoint_name()
         self.process_service_endpoint()
         self.process_extensions()
 
@@ -108,6 +110,10 @@ class AzureDevopsBuildInteractive(object):
     def pre_checks(self):
         if not os.path.exists('host.json'):
             self.logger.critical("FATAL: There is no host.json in the current directory. Functionapps must contain a host.json in their root.")  # pylint: disable=line-too-long
+            exit(1)
+
+        if not self.adbp.check_git():
+            self.logger.critical("FATAL: The program requires git source control to operate, please install git.")
             exit(1)
 
     def process_functionapp(self):
@@ -185,12 +191,73 @@ class AzureDevopsBuildInteractive(object):
             self.logger.info('Creating new yaml')
             self.adbp.create_yaml(self.functionapp_language, self.functionapp_type)
 
-    def process_repository(self):
-        """Helper to process for setting up the azure devops build repository to use for the build"""
-        if os.path.exists(".git"):
-            self.process_git_exists()
+    def process_local_repository(self):
+        has_local_git_repository = self.adbp.check_git_local_repository()
+        if has_local_git_repository:
+            print("Detected local git repository.")
+
+        # Collect repository name on Azure Devops
+        expected_repository = prompt("Push to which Azure Devops repository (default: {repo}): ".format(
+                repo=self.project_name))
+        if not expected_repository:
+            expected_repository = self.project_name
+        
+        expected_remote_name = self.adbp.get_local_git_remote_name(self.organization_name, self.project_name, expected_repository)
+        expected_remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, expected_repository)
+
+        # If local repository already has a remote
+        # Let the user to know s/he can push to the remote directly for context update
+        # Or let s/he remove the git remote manually
+        has_local_git_remote = self.adbp.check_git_remote(self.organization_name, self.project_name, expected_repository)
+        if has_local_git_remote:
+            self.logger.warning("There is already an repository remote in your git context.")
+            self.logger.warning("To update the repository in {url}".format(url=expected_remote_url))
+            self.logger.warning("Use 'git push {remote}'".format(remote=expected_remote_name))
+            self.logger.warning("Or delete the remote with 'git remote remove {remote}'".format(
+                    remote=expected_remote_name)
+            )
+            exit(1)
+
+        # Setup a local git repository and create a new commit on top of this context
+        self.repository_name = expected_repository
+        try:
+            self.adbp.setup_local_git_repository(self.organization_name, self.project_name, self.repository_name)
+        except GitOperationException as goe:
+            self.logger.fatal("Failed to setup local git repository.")
+            self.logger.fatal(goe.message)
+            exit(1)
+
+        print("Git remote added: {remote}".format(remote=self.repository_name))
+
+    def process_remote_repository(self):
+        try:
+            remote_branches = self.adbp.get_azure_devops_repository_branches(self.organization_name, self.project_name, self.repository_name)
+        except Exception as e:
+            remote_branches = None
+        
+        print(remote_branches)
+        remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
+
+        # If repository has branches, we need to warn user for the push
+        if remote_branches:
+            self.logger.warning("The remote repository {url} is not clean.".format(url=remote_url))
+            self.logger.warning("If you wish to continue, a force push will be commited and your local branches will overwrite the remote branches!")
+            self.logger.warning("Please ensure you have force push permission.")
+            consent = prompt_y_n("I consent to force push all local branches to Azure Devops repository: ")
+
+            if not consent:
+                exit(0)
+            
+            # If the repository exist, we will do a force push to wipe out the remote repository
+            self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=True)
         else:
-            self.process_git_doesnt_exist()
+            # If the repository does not exist, we create the repository and push to it
+            self.adbp.create_repository(self.organization_name, self.project_name, self.repository_name)
+            self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=False)
+
+        print("Local branches has been pushed to {url}".format(url=remote_url))
+        self.build_definition_name += self.repository_name
+        self.release_definition_name += self.repository_name
 
     def process_extensions(self):
         self.logger.info("Installing the required extensions for the build and release")
@@ -208,7 +275,7 @@ class AzureDevopsBuildInteractive(object):
                 service_endpoint = self.adbp.create_service_endpoint(
                     self.organization_name, self.project_name, self.service_endpoint_name
                 )
-            except CalledProcessError:
+            except Exception:
                 self.logger.critical("""
 Failed to create pipeline service endpoint.
 Please check if you have Microsoft.Authorization/roleAssignments/write permissions in current subscription.
@@ -271,123 +338,6 @@ You may use `az account set --subscription \"{SUBSCRIPTION_NAME}\"` to change yo
             + self.project_name + "/_releaseProgress?_a=release-environment-logs&releaseId=" + str(release.id)
         self.logger.info("To follow the release process go to %s", url)
         self.release = release
-
-    def find_type_repository(self):  # pylint: disable=no-self-use
-        lines = (check_output('git remote show origin'.split())).decode('utf-8').split('\n')
-        for line in lines:
-            if re.search('github', line):
-                return 'github'
-            elif re.search('visualstudio', line):
-                return 'azure repos'
-        return 'other'
-
-    def process_remote(self):
-        commits = self.adbp.list_commits(self.organization_name, self.project_name, self.repository_name)
-        if commits:
-            self.logger.warning("The default repository associated with your project already contains a commit. There needs to be a clean repository.")  # pylint: disable=line-too-long
-            self.logger.warning("We will try and create a new repository instead")
-            succeeded = False
-            while not succeeded:
-                repository_name = prompt('What would you like to call the new repository: ')  # pylint: disable=line-too-long
-                # Validate that the name does not already exist
-                repositories = self.adbp.list_repositories(self.organization_name, self.project_name)
-                repository_match = \
-                    [repo for repo in repositories if repo.name == repository_name]
-                if repository_match:
-                    self.logger.error("A repository with that name already exists in this project.")
-                else:
-                    succeeded = True
-            self.adbp.create_repository(self.organization_name, self.project_name, repository_name)
-            self.repository_name = repository_name
-            self.build_definition_name += repository_name
-            self.release_definition_name += repository_name
-        try:
-            setup = self.adbp.setup_remote(self.organization_name, self.project_name, self.repository_name, 'devopsbuild')  # pylint: disable=line-too-long
-        except CalledProcessError:
-            self.logger.critical("error with the seting up of the remote")
-            exit(1)
-        if not setup.succeeded:
-            self.logger.critical('It looks like you already have a remote called devopsbuild. This indicates that you already have a pipeline setup.')  # pylint: disable=line-too-long
-            self.logger.critical('This command is only to setup a build|release pipeline.')
-            self.logger.critical('If you want to run your existing pipeline just push your changes in git to the devopsbuild remote.')  # pylint: disable=line-too-long
-            exit(1)
-
-    def process_git_exists(self):
-        self.logger.warning("There is a local git file.")
-
-        if self.local_git is None:
-            self.logger.warning("1. Chosing the add remote will create a new remote to the build repository but otherwise preserve your local git")  # pylint: disable=line-too-long
-            self.logger.warning("2. Chosing the add new repository will delete your local git file and create a new one with a reference to the build repository.")  # pylint: disable=line-too-long
-            self.logger.warning("3. Choosing the use existing will use the repository you are referencing to do the build. Only choose use existing if your local git file is referencing an azure repository that you can create a build with.")  # pylint: disable=line-too-long
-            command_options = ['AddRemote', 'AddNewRepository', 'UseExisting']
-            choice_index = prompt_choice_list('Please choose the action you would like to take: ', command_options)
-            command = command_options[choice_index]
-        else:
-            command = self.local_git
-
-        if command == 'AddNewRepository':
-            self.logger.info("Removing your old, adding a new repository.")
-            # https://docs.python.org/3/library/os.html#os.name (if os.name is nt it is windows)
-            if os.name == 'nt':
-                os.system("rmdir /s /q .git")
-            else:
-                os.system("rm -rf .git")
-            self.process_git_doesnt_exist()
-        elif command == 'AddRemote':
-            self.process_remote()
-        else:
-            # default is to try and use the existing azure repo
-            repository_type = self.find_type_repository()
-            self.logger.info("We have detected that you have a %s type of repository", repository_type)
-            if repository_type == 'azure repos':
-                # Figure out what the repository information is for their current azure repos account
-                lines = (check_output('git remote show origin'.split())).decode('utf-8').split('\n')
-                for line in lines:
-                    if re.search('Push', line):
-                        m = re.search('http.*', line)
-                        url = m.group(0)
-                        segs = url.split('/')
-                        organization_name = segs[2].split('.')[0]
-                        project_name = segs[3]
-                        repository_name = segs[5]
-                # We don't need to push to it as it is all currently there
-                self.organization_name = organization_name
-                self.project_name = project_name
-                self.repository_name = repository_name
-            else:
-                self.logger.critical("We don't support any other repositories except for azure repos. We cannot setup a build with these repositories.")  # pylint: disable=line-too-long
-                exit(1)
-
-    def process_git_doesnt_exist(self):
-        # check if we need to make a repository
-        repositories = self.adbp.list_repositories(self.organization_name, self.project_name)
-        repository_match = \
-            [repository for repository in repositories if repository.name == self.repository_name]
-
-        if not repository_match:
-            # Since we don't have a match for that repository we should just make it
-            self.adbp.create_repository(self.organization_name, self.project_name, self.repository_name)
-        else:
-            commits = self.adbp.list_commits(self.organization_name, self.project_name, self.repository_name)
-            if commits:
-                self.logger.warning("The default repository associated with your project already contains a commit. There needs to be a clean repository.")  # pylint: disable=line-too-long
-                succeeded = False
-                while not succeeded:
-                    repository_name = prompt('We will create that repository. What would you like to call the new repository: ')  # pylint: disable=line-too-long
-                    # Validate that the name does not already exist
-                    repositories = self.adbp.list_repositories(self.organization_name, self.project_name)
-                    repository_match = \
-                        [repo for repo in repositories if repo.name == repository_name]
-                    if repository_match:
-                        self.logger.error("A repository with that name already exists in this project.")
-                    else:
-                        succeeded = True
-                self.adbp.create_repository(self.organization_name, self.project_name, repository_name)
-                self.repository_name = repository_name
-                self.build_definition_name += repository_name
-                self.release_definition_name += repository_name
-        # Since they do not have a git file locally we can setup the git locally as is
-        self.adbp.setup_repository(self.organization_name, self.project_name, self.repository_name)
 
     def _select_functionapp(self):
         self.logger.info("Retrieving functionapp names.")
@@ -478,6 +428,12 @@ You may use `az account set --subscription \"{SUBSCRIPTION_NAME}\"` to change yo
         organizations = self.adbp.list_organizations()
         return [organization for organization in organizations.value
                 if organization.accountName == organization_name][0]
+    
+    def _get_service_endpoint_name(self):
+        return "{org}/{proj}/_git/{repo}/pipeline".format(
+                org = self.organization_name,
+                proj = self.project_name,
+                repo = self.repository_name)
 
     def _create_organization(self):
         self.logger.info("Starting process to create a new Azure DevOps organization")
