@@ -146,6 +146,10 @@ class AzureDevopsBuildProvider(object):  # pylint: disable=too-many-public-metho
         pool_manager = PoolManager(organization_name=organization_name, project_name=project_name, creds=self._creds)
         return pool_manager.list_pools()
 
+    def check_service_endpoint_assignment_permission(self):
+        """Check if the user have previlege to assign a role to a service principle"""
+        return ServiceEndpointManager.check_service_endpoint_assignment_permission()
+
     def get_service_endpoints(self, organization_name, project_name, repository_name):
         """Query a service endpoint detail"""
         service_endpoint_manager = ServiceEndpointManager(organization_name=organization_name,

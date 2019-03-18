@@ -4,7 +4,6 @@
 # --------------------------------------------------------------------------------------------
 
 import os
-from subprocess import check_output, CalledProcessError
 import time
 import re
 import json
@@ -107,11 +106,18 @@ class AzureDevopsBuildInteractive(object):
 
     def pre_checks(self):
         if not os.path.exists('host.json'):
-            self.logger.critical("FATAL: There is no host.json in the current directory. Functionapps must contain a host.json in their root.")  # pylint: disable=line-too-long
+            self.logger.critical("There is no host.json in the current directory.")
+            self.logger.critical("Functionapps must contain a host.json in their root.")
             exit(1)
 
         if not self.adbp.check_git():
-            self.logger.critical("FATAL: The program requires git source control to operate, please install git.")
+            self.logger.critical("The program requires git source control to operate, please install git.")
+            exit(1)
+
+        if not self.adbp.check_service_endpoint_assignment_permission():
+            self.logger.critical("Failed to perform role assignment on a dummy service principle.")
+            self.logger.critical("Please check if you have Microsoft.Authorization/roleAssignments/write permissions in current subscription.")
+            self.logger.critical("You may use 'az account set --subscription {subscription id}' to change your active subscription.")
             exit(1)
 
     def process_functionapp(self):
@@ -133,7 +139,7 @@ class AzureDevopsBuildInteractive(object):
     def process_organization(self):
         """Helper to retrieve information about an organization / create a new one"""
         if self.organization_name is None:
-            response = prompt_y_n('Would you like to use an existing organization? ')
+            response = prompt_y_n('Would you like to use an existing Azure Devops organization? ')
             if response:
                 self._select_organization()
             else:
@@ -148,7 +154,7 @@ class AzureDevopsBuildInteractive(object):
         if (self.project_name is None) and (self.created_organization):
             self._create_project()
         elif self.project_name is None:
-            use_existing_project = prompt_y_n('Would you like to use an existing project? ')
+            use_existing_project = prompt_y_n('Would you like to use an existing Azure Devops project? ')
             if use_existing_project:
                 self._select_project()
             else:
@@ -225,7 +231,7 @@ class AzureDevopsBuildInteractive(object):
             self.logger.fatal(goe.message)
             exit(1)
 
-        print("Git remote added: {remote}".format(remote=self.repository_name))
+        print("Git remote added: {remote}".format(remote=expected_remote_name))
 
     def process_remote_repository(self):
         try:
@@ -237,9 +243,9 @@ class AzureDevopsBuildInteractive(object):
 
         # If repository has branches, we need to warn user for the push
         if remote_branches:
-            self.logger.warning("The remote repository {url} is not clean.".format(url=remote_url))
+            self.logger.warning("The remote repository is not clean: {url}".format(url=remote_url))
             self.logger.warning("If you wish to continue, a force push will be commited and your local branches will overwrite the remote branches!")
-            self.logger.warning("Please ensure you have force push permission.")
+            self.logger.warning("Please ensure you have force push permission in {repo} repository.".format(repo=self.repository_name))
             consent = prompt_y_n("I consent to force push all local branches to Azure Devops repository: ")
 
             if not consent:
@@ -263,15 +269,9 @@ class AzureDevopsBuildInteractive(object):
 
         # If there is no matching service endpoint, we need to create a new one
         if not service_endpoints:
-            try:
-                service_endpoint = self.adbp.create_service_endpoint(
-                    self.organization_name, self.project_name, self.repository_name
-                )
-            except Exception as e:
-                self.logger.critical("Failed to create pipeline service endpoint.")
-                self.logger.critical("Please check if you have Microsoft.Authorization/roleAssignments/write permissions in current subscription.")
-                self.logger.critical("You may use `az account set --subscription \"{SUBSCRIPTION_NAME}\"` to change your active subscription.")
-                exit(1)
+            service_endpoint = self.adbp.create_service_endpoint(
+                self.organization_name, self.project_name, self.repository_name
+            )
         else:
             service_endpoint = service_endpoints[0]
             print("Detected service endpoint {name}".format(name=service_endpoint.name))
