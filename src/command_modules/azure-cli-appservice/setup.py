@@ -61,7 +61,7 @@ setup(
     author_email='azpycli@microsoft.com',
     url='https://github.com/Azure/azure-cli',
     dependency_links=[
-        'git+https://github.com/Hazhzeng/azure-add functions-devops-build.git@master#egg=azure-functions-devops-build-0'
+        'git+https://github.com/Hazhzeng/azure-functions-devops-build.git@master#egg=azure-functions-devops-build-0'
     ],
     classifiers=CLASSIFIERS,
     packages=[
