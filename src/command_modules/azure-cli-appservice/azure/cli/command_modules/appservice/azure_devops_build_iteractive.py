@@ -75,17 +75,17 @@ class AzureDevopsBuildInteractive(object):
         self.process_organization()
         self.process_project()
 
-        # Set up the default names for the rest of the things we need to create
-        self.repository_name = self.project_name
-        self.build_definition_name = "Initial az cli build {}.".format(self.project_name)
-        self.release_definition_name = "Initial az cli release {}.".format(self.project_name) 
-
-        self.process_yaml()
+        # Allow user to choose the uploading destination
         self.process_local_repository()
         self.process_remote_repository()
+
+        # Set up the default names for the rest of the things we need to create
+        self.process_yaml()
         self.process_service_endpoint()
         self.process_extensions()
 
+        # Start build process and release artifacts to azure functions app
+        self.process_build_and_release_definition_name()
         self.process_build()
         self.process_release()
 
@@ -198,7 +198,7 @@ class AzureDevopsBuildInteractive(object):
     def process_local_repository(self):
         has_local_git_repository = self.adbp.check_git_local_repository()
         if has_local_git_repository:
-            print("Detected local git repository.")
+            self.logger.warning("Detected local git repository.")
 
         # Collect repository name on Azure Devops
         expected_repository = prompt("Push to which Azure Devops repository (default: {repo}): ".format(
@@ -231,7 +231,7 @@ class AzureDevopsBuildInteractive(object):
             self.logger.fatal(goe.message)
             exit(1)
 
-        print("Git remote added: {remote}".format(remote=expected_remote_name))
+        print("Added git remote {remote}".format(remote=expected_remote_name))
 
     def process_remote_repository(self):
         try:
@@ -259,8 +259,18 @@ class AzureDevopsBuildInteractive(object):
             self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=False)
 
         print("Local branches has been pushed to {url}".format(url=remote_url))
-        self.build_definition_name += self.repository_name
-        self.release_definition_name += self.repository_name
+
+    def process_build_and_release_definition_name(self):
+        self.build_definition_name = "_build_{org}_{proj}_{repo}".format(
+            org=self.organization_name,
+            proj=self.project_name,
+            repo=self.repository_name
+        )
+        self.release_definition_name = "_release_{org}_{proj}_{repo}".format(
+            org=self.organization_name,
+            proj=self.project_name,
+            repo=self.repository_name
+        )
 
     def process_service_endpoint(self):
         service_endpoints = self.adbp.get_service_endpoints(
@@ -274,7 +284,7 @@ class AzureDevopsBuildInteractive(object):
             )
         else:
             service_endpoint = service_endpoints[0]
-            print("Detected service endpoint {name}".format(name=service_endpoint.name))
+            self.logger.warning("Detected service endpoint {name}".format(name=service_endpoint.name))
         
         self.service_endpoint_name = service_endpoint.name
 
@@ -296,7 +306,7 @@ class AzureDevopsBuildInteractive(object):
                                               self.repository_name, self.build_definition_name,
                                               self.build_pool_name)
         else:
-            print("Detected build definition {name}".format(name=self.build_definition_name))
+            self.logger.warning("Detected build definition {name}".format(name=self.build_definition_name))
 
         build = self.adbp.create_build_object(self.organization_name, self.project_name,
                                               self.build_definition_name, self.build_pool_name)
@@ -312,7 +322,7 @@ class AzureDevopsBuildInteractive(object):
         counter = 0
         while artifacts == []:
             time.sleep(5)
-            print("waiting for artifacts ... {counter}s".format(counter=counter))
+            print("building artifacts ... {counter}s".format(counter=counter))
             build = self._get_build_by_id(self.organization_name, self.project_name, self.build.id)
             if build.status == 'completed':
                 break
@@ -340,8 +350,9 @@ class AzureDevopsBuildInteractive(object):
                                                 self.release_definition_name, self.functionapp_type,
                                                 self.functionapp_name, self.storage_name,
                                                 self.resource_group_name, self.settings)
+            time.sleep(5)
         else:
-            print("Detected release definition {name}".format(name=self.release_definition_name))
+            self.logger.warning("Detected release definition {name}".format(name=self.release_definition_name))
         
         release = self.adbp.create_release(self.organization_name, self.project_name, self.release_definition_name)
         url = "https://dev.azure.com/" + self.organization_name + "/" \
