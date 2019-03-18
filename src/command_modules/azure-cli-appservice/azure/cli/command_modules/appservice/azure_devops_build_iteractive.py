@@ -234,14 +234,13 @@ class AzureDevopsBuildInteractive(object):
         print("Added git remote {remote}".format(remote=expected_remote_name))
 
     def process_remote_repository(self):
-        try:
-            remote_branches = self.adbp.get_azure_devops_repository_branches(self.organization_name, self.project_name, self.repository_name)
-        except Exception as e:
-            remote_branches = None
-        
-        remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
+        # Create remote repository if it does not exist
+        repository = self.adbp.get_azure_devops_repository(self.organization_name, self.project_name, self.repository_name)
+        if not repository:
+            self.adbp.create_repository(self.organization_name, self.project_name, self.repository_name)
 
-        # If repository has branches, we need to warn user for the push
+        # Force push branches if repository is not clean
+        remote_branches = self.adbp.get_azure_devops_repository_branches(self.organization_name, self.project_name, self.repository_name)
         if remote_branches:
             self.logger.warning("The remote repository is not clean: {url}".format(url=remote_url))
             self.logger.warning("If you wish to continue, a force push will be commited and your local branches will overwrite the remote branches!")
@@ -254,10 +253,10 @@ class AzureDevopsBuildInteractive(object):
             # If the repository exist, we will do a force push to wipe out the remote repository
             self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=True)
         else:
-            # If the repository does not exist, we create the repository and push to it
-            self.adbp.create_repository(self.organization_name, self.project_name, self.repository_name)
+            # If the repository does not exist, we will do a normal push
             self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=False)
 
+        remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
         print("Local branches has been pushed to {url}".format(url=remote_url))
 
     def process_build_and_release_definition_name(self):

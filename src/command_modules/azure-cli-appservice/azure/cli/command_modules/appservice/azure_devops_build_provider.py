@@ -116,6 +116,11 @@ class AzureDevopsBuildProvider(object):  # pylint: disable=too-many-public-metho
                                                project_name=project_name, creds=self._creds)
         return repository_manager.get_local_git_remote_name(repository_name, remote_prefix="azuredevops")
 
+    def get_azure_devops_repository(self, organization_name, project_name, repository_name):
+        repository_manager = RepositoryManager(organization_name=organization_name,
+                                               project_name=project_name, creds=self._creds)
+        return repository_manager.get_azure_devops_repository(repository_name)
+
     def get_azure_devops_repo_url(self, organization_name, project_name, repository_name):
         """Get the azure devops repository url"""
         repository_manager = RepositoryManager(organization_name=organization_name,
