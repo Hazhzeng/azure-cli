@@ -230,6 +230,7 @@ class AzureDevopsBuildInteractive(object):
             self.adbp.create_repository(self.organization_name, self.project_name, self.repository_name)
 
         # Force push branches if repository is not clean
+        remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
         remote_branches = self.adbp.get_azure_devops_repository_branches(self.organization_name, self.project_name, self.repository_name)
         if remote_branches:
             self.logger.warning("The remote repository is not clean: {url}".format(url=remote_url))
@@ -246,7 +247,6 @@ class AzureDevopsBuildInteractive(object):
             # If the repository does not exist, we will do a normal push
             self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=False)
 
-        remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
         print("Local branches has been pushed to {url}".format(url=remote_url))
 
     def process_build_and_release_definition_name(self):
