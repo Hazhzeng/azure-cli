@@ -10,7 +10,7 @@ import json
 from knack.prompting import prompt_choice_list, prompt_y_n, prompt
 from azure_functions_devops_build.constants import (LINUX_CONSUMPTION, LINUX_DEDICATED, WINDOWS,
                                                     PYTHON, NODE, DOTNET, JAVA)
-from azure_functions_devops_build.exceptions import GitOperationException
+from azure_functions_devops_build.exceptions import GitOperationException, RoleAssignmentException
 from .azure_devops_build_provider import AzureDevopsBuildProvider
 from .custom import list_function_app, show_webapp, get_app_settings
 
@@ -114,12 +114,6 @@ class AzureDevopsBuildInteractive(object):
             self.logger.critical("The program requires git source control to operate, please install git.")
             exit(1)
 
-        if not self.adbp.check_service_endpoint_assignment_permission():
-            self.logger.critical("Failed to perform role assignment on a dummy service principle.")
-            self.logger.critical("Please check if you have Microsoft.Authorization/roleAssignments/write permissions in current subscription.")
-            self.logger.critical("You may use 'az account set --subscription {subscription id}' to change your active subscription.")
-            exit(1)
-
     def process_functionapp(self):
         """Helper to retrieve information about a functionapp"""
         if self.functionapp_name is None:
@@ -214,12 +208,8 @@ class AzureDevopsBuildInteractive(object):
         # Or let s/he remove the git remote manually
         has_local_git_remote = self.adbp.check_git_remote(self.organization_name, self.project_name, expected_repository)
         if has_local_git_remote:
-            self.logger.warning("There is already an repository remote in your git context.")
-            self.logger.warning("To update the repository in {url}".format(url=expected_remote_url))
-            self.logger.warning("Use 'git push {remote}'".format(remote=expected_remote_name))
-            self.logger.warning("Or delete the remote with 'git remote remove {remote}'".format(
-                    remote=expected_remote_name)
-            )
+            self.logger.warning("There's a git remote bind to {url}.".format(url=expected_remote_url))
+            self.logger.warning("To update the repository and trigger an Azure Devops build, please use 'git push {remote}'".format(remote=expected_remote_name))
             exit(1)
 
         # Setup a local git repository and create a new commit on top of this context
@@ -278,9 +268,15 @@ class AzureDevopsBuildInteractive(object):
 
         # If there is no matching service endpoint, we need to create a new one
         if not service_endpoints:
-            service_endpoint = self.adbp.create_service_endpoint(
-                self.organization_name, self.project_name, self.repository_name
-            )
+            try:
+                service_endpoint = self.adbp.create_service_endpoint(
+                    self.organization_name, self.project_name, self.repository_name
+                )
+            except RoleAssignmentException:
+                self.logger.error("To use the Azure DevOps Pipeline Build,")
+                self.logger.error("We need to assign a contributor role to the Azure Functions release service principle.")
+                self.logger.error("Please ensure you are the owner of the subscription, or have role assignment write permission.")
+                exit(1)
         else:
             service_endpoint = service_endpoints[0]
             self.logger.warning("Detected service endpoint {name}".format(name=service_endpoint.name))
