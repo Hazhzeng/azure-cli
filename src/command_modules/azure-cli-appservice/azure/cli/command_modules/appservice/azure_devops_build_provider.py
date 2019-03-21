@@ -6,7 +6,7 @@
 from azure_functions_devops_build.organization.organization_manager import OrganizationManager
 from azure_functions_devops_build.project.project_manager import ProjectManager
 from azure_functions_devops_build.yaml.yaml_manager import YamlManager
-from azure_functions_devops_build.repository.repository_manager import RepositoryManager
+from azure_functions_devops_build.respository.repository_manager import RepositoryManager
 from azure_functions_devops_build.pool.pool_manager import PoolManager
 from azure_functions_devops_build.service_endpoint.service_endpoint_manager import ServiceEndpointManager
 from azure_functions_devops_build.extension.extension_manager import ExtensionManager
@@ -150,10 +150,6 @@ class AzureDevopsBuildProvider(object):  # pylint: disable=too-many-public-metho
         """List the devops pool resources"""
         pool_manager = PoolManager(organization_name=organization_name, project_name=project_name, creds=self._creds)
         return pool_manager.list_pools()
-
-    def check_service_endpoint_assignment_permission(self):
-        """Check if the user have previlege to assign a role to a service principle"""
-        return ServiceEndpointManager.check_service_endpoint_assignment_permission()
 
     def get_service_endpoints(self, organization_name, project_name, repository_name):
         """Query a service endpoint detail"""

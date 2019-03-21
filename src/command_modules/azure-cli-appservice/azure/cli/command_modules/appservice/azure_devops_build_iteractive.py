@@ -10,7 +10,11 @@ import json
 from knack.prompting import prompt_choice_list, prompt_y_n, prompt
 from azure_functions_devops_build.constants import (LINUX_CONSUMPTION, LINUX_DEDICATED, WINDOWS,
                                                     PYTHON, NODE, DOTNET, JAVA)
-from azure_functions_devops_build.exceptions import GitOperationException, RoleAssignmentException
+from azure_functions_devops_build.exceptions import (
+    GitOperationException,
+    RoleAssignmentException,
+    LanguageNotSupportException
+)
 from .azure_devops_build_provider import AzureDevopsBuildProvider
 from .custom import list_function_app, show_webapp, get_app_settings
 
@@ -49,6 +53,7 @@ class AzureDevopsBuildInteractive(object):
         self.organization_name = organization_name
         self.project_name = project_name
         self.repository_name = None
+        self.repository_remote_name = None
         self.service_endpoint_name = None
         self.build_definition_name = None
         self.release_definition_name = None
@@ -75,12 +80,14 @@ class AzureDevopsBuildInteractive(object):
         self.process_organization()
         self.process_project()
 
+        # Generate Azure pipenline build yaml
+        self.process_yaml()
+
         # Allow user to choose the uploading destination
         self.process_local_repository()
         self.process_remote_repository()
 
         # Set up the default names for the rest of the things we need to create
-        self.process_yaml()
         self.process_service_endpoint()
         self.process_extensions()
 
@@ -88,6 +95,12 @@ class AzureDevopsBuildInteractive(object):
         self.process_build_and_release_definition_name()
         self.process_build()
         self.process_release()
+
+        # Advise user to reuse the pipeline build and release by pushing to remote
+        print()
+        print("To trigger a function build again, please use")
+        print("'git push {remote} master'".format(remote=self.repository_remote_name))
+        print()
 
         return_dict = {}
         return_dict['functionapp_name'] = self.functionapp_name
@@ -128,7 +141,12 @@ class AzureDevopsBuildInteractive(object):
 
         self.resource_group_name = functionapp.resource_group
         self.functionapp_type = self._find_type(kinds)
-        self.functionapp_language, self.storage_name = self._find_language_and_storage_name(app_settings)
+
+        try:
+            self.functionapp_language, self.storage_name = self._find_language_and_storage_name(app_settings)
+        except LanguageNotSupportException as lnse:
+            self.logger.critical("Sorry, currently we do not support {language}.".format(language=lnse.message))
+            exit(1)
 
     def process_organization(self):
         """Helper to retrieve information about an organization / create a new one"""
@@ -186,8 +204,12 @@ class AzureDevopsBuildInteractive(object):
             else:
                 response = self.overwrite_yaml
         if (not os.path.exists('azure-pipelines.yml')) or response:
-            self.logger.info('Creating new yaml')
-            self.adbp.create_yaml(self.functionapp_language, self.functionapp_type)
+            print('Creating new azure-pipelines.yml')
+            try:
+                self.adbp.create_yaml(self.functionapp_language, self.functionapp_type)
+            except LanguageNotSupportException as lnse:
+                self.logger.critical("Sorry, currently we do not support {language}.".format(language=lnse.message))
+                exit(1)
 
     def process_local_repository(self):
         has_local_git_repository = self.adbp.check_git_local_repository()
@@ -209,7 +231,7 @@ class AzureDevopsBuildInteractive(object):
         has_local_git_remote = self.adbp.check_git_remote(self.organization_name, self.project_name, expected_repository)
         if has_local_git_remote:
             self.logger.warning("There's a git remote bind to {url}.".format(url=expected_remote_url))
-            self.logger.warning("To update the repository and trigger an Azure Devops build, please use 'git push {remote}'".format(remote=expected_remote_name))
+            self.logger.warning("To update the repository and trigger an Azure Devops build, please use 'git push {remote} master'".format(remote=expected_remote_name))
             exit(1)
 
         # Setup a local git repository and create a new commit on top of this context
@@ -221,6 +243,7 @@ class AzureDevopsBuildInteractive(object):
             self.logger.fatal(goe.message)
             exit(1)
 
+        self.repository_remote_name = expected_remote_name
         print("Added git remote {remote}".format(remote=expected_remote_name))
 
     def process_remote_repository(self):
@@ -250,16 +273,8 @@ class AzureDevopsBuildInteractive(object):
         print("Local branches has been pushed to {url}".format(url=remote_url))
 
     def process_build_and_release_definition_name(self):
-        self.build_definition_name = "_build_{org}_{proj}_{repo}".format(
-            org=self.organization_name,
-            proj=self.project_name,
-            repo=self.repository_name
-        )
-        self.release_definition_name = "_release_{org}_{proj}_{repo}".format(
-            org=self.organization_name,
-            proj=self.project_name,
-            repo=self.repository_name
-        )
+        self.build_definition_name = self.repository_remote_name.replace("_azuredevops_", "_build_", 1)
+        self.release_definition_name = self.repository_remote_name.replace("_azuredevops_", "_release_", 1)
 
     def process_service_endpoint(self):
         service_endpoints = self.adbp.get_service_endpoints(
@@ -284,9 +299,10 @@ class AzureDevopsBuildInteractive(object):
         self.service_endpoint_name = service_endpoint.name
 
     def process_extensions(self):
-        print("Installing the required extensions for the build and release")
-        self.adbp.create_extension(self.organization_name, 'AzureAppServiceSetAppSettings', 'hboelman')
-        self.adbp.create_extension(self.organization_name, 'PascalNaber-Xpirit-CreateSasToken', 'pascalnaber')
+        if self.functionapp_type == LINUX_CONSUMPTION:
+            print("Installing the required extensions for the build and release")
+            self.adbp.create_extension(self.organization_name, 'AzureAppServiceSetAppSettings', 'hboelman')
+            self.adbp.create_extension(self.organization_name, 'PascalNaber-Xpirit-CreateSasToken', 'pascalnaber')
 
     def process_build(self):
         # need to check if the build definition already exists
@@ -406,12 +422,11 @@ class AzureDevopsBuildInteractive(object):
                 elif language_str == "dotnet":
                     self.logger.info("detected that language used by functionapp is .net")
                     language = DOTNET
-                elif language_str == "java":
-                    self.logger.info("detected that language used by functionapp is java")
-                    language = JAVA
+                #elif language_str == "java":
+                #    self.logger.info("detected that language used by functionapp is java")
+                #    language = JAVA
                 else:
-                    self.logger.warning("valid language not found")
-                    language = ""
+                    raise LanguageNotSupportException(language_str)
             if app_setting['name'] == "AzureWebJobsStorage":
                 storage_name = app_setting['value'].split(';')[1].split('=')[1]
                 self.logger.info("detected that storage used by the functionapp is %s", storage_name)
