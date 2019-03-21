@@ -273,8 +273,8 @@ class AzureDevopsBuildInteractive(object):
         print("Local branches has been pushed to {url}".format(url=remote_url))
 
     def process_build_and_release_definition_name(self):
-        self.build_definition_name = self.repository_remote_name.replace("_azuredevops_", "_build_", 1)
-        self.release_definition_name = self.repository_remote_name.replace("_azuredevops_", "_release_", 1)
+        self.build_definition_name = self.repository_remote_name.replace("_azuredevops_", "_build_", 1)[0:256]
+        self.release_definition_name = self.repository_remote_name.replace("_azuredevops_", "_release_", 1)[0:256]
 
     def process_service_endpoint(self):
         service_endpoints = self.adbp.get_service_endpoints(
