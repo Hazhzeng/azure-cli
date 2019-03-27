@@ -221,7 +221,7 @@ class AzureDevopsBuildInteractive(object):
                 repo=self.project_name))
         if not expected_repository:
             expected_repository = self.project_name
-        
+
         expected_remote_name = self.adbp.get_local_git_remote_name(self.organization_name, self.project_name, expected_repository)
         expected_remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, expected_repository)
 
@@ -267,7 +267,7 @@ class AzureDevopsBuildInteractive(object):
                 exit(0)
             else:
                 is_force_push = True
-            
+
         # If the repository does not exist, we will do a normal push
         # If the repository exists, we will do a force push
         try:
@@ -301,7 +301,7 @@ class AzureDevopsBuildInteractive(object):
         else:
             service_endpoint = service_endpoints[0]
             self.logger.warning("Detected service endpoint {name}".format(name=service_endpoint.name))
-        
+
         self.service_endpoint_name = service_endpoint.name
 
     def process_extensions(self):
@@ -352,7 +352,7 @@ class AzureDevopsBuildInteractive(object):
             self.logger.critical("Your build has failed")
             self.logger.critical("To view details on why your build has failed please go to %s", url)
             exit(1)
-        
+
         # need to check if the release definition already exists
         release_definitions = self.adbp.list_release_definitions(self.organization_name, self.project_name)
         release_definition_match = [
@@ -370,12 +370,21 @@ class AzureDevopsBuildInteractive(object):
             time.sleep(5)
         else:
             self.logger.warning("Detected release definition {name}".format(name=self.release_definition_name))
-        
+
         release = self.adbp.create_release(self.organization_name, self.project_name, self.release_definition_name)
         url = "https://dev.azure.com/" + self.organization_name + "/" \
             + self.project_name + "/_releaseProgress?_a=release-environment-logs&releaseId=" + str(release.id)
         print("To follow the release process go to {url}".format(url=url))
         self.release = release
+
+    def find_type_repository(self):  # pylint: disable=no-self-use
+        lines = (check_output('git remote show origin'.split())).decode('utf-8').split('\n')
+        for line in lines:
+            if re.search('github', line):
+                return 'github'
+            elif re.search('visualstudio', line):
+                return 'azure repos'
+        return 'other'
 
     def _select_functionapp(self):
         self.logger.info("Retrieving functionapp names.")
