@@ -255,6 +255,7 @@ class AzureDevopsBuildInteractive(object):
         # Force push branches if repository is not clean
         remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
         remote_branches = self.adbp.get_azure_devops_repository_branches(self.organization_name, self.project_name, self.repository_name)
+        is_force_push = False
         if remote_branches:
             self.logger.warning("The remote repository is not clean: {url}".format(url=remote_url))
             self.logger.warning("If you wish to continue, a force push will be commited and your local branches will overwrite the remote branches!")
@@ -262,13 +263,18 @@ class AzureDevopsBuildInteractive(object):
             consent = prompt_y_n("I consent to force push all local branches to Azure Devops repository: ")
 
             if not consent:
+                self.adbp.remote_git_remote(self.repository_remote_name)
                 exit(0)
+            else:
+                is_force_push = True
             
-            # If the repository exist, we will do a force push to wipe out the remote repository
-            self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=True)
-        else:
-            # If the repository does not exist, we will do a normal push
-            self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=False)
+        # If the repository does not exist, we will do a normal push
+        # If the repository exists, we will do a force push
+        try:
+            self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=is_force_push)
+        except GitOperationException as goe:
+            self.adbp.remote_git_remote(self.repository_remote_name)
+            exit(0)
 
         print("Local branches has been pushed to {url}".format(url=remote_url))
 
