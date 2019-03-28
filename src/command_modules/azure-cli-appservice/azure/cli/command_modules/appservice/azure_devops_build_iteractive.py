@@ -188,7 +188,7 @@ class AzureDevopsBuildInteractive(object):
 
         if settings:
             if self.use_local_settings is None:
-                use_local_settings = prompt_y_n('Would you like to transfer your local.settings.json to the host settings of your application running on Azure?')  # pylint: disable=line-too-long
+                use_local_settings = prompt_y_n('Would you like to copy your local settings to your application in Azure?')  # pylint: disable=line-too-long
             else:
                 use_local_settings = self.use_local_settings
             if not use_local_settings:
@@ -230,7 +230,7 @@ class AzureDevopsBuildInteractive(object):
         # Or let s/he remove the git remote manually
         has_local_git_remote = self.adbp.check_git_remote(self.organization_name, self.project_name, expected_repository)
         if has_local_git_remote:
-            self.logger.warning("There's a git remote bind to {url}.".format(url=expected_remote_url))
+            self.logger.warning("There's a git remote bound to {url}.".format(url=expected_remote_url))
             self.logger.warning("To update the repository and trigger an Azure Devops build, please use 'git push {remote} master'".format(remote=expected_remote_name))
             exit(1)
 
@@ -267,7 +267,7 @@ class AzureDevopsBuildInteractive(object):
         except GitOperationException as goe:
             self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
             self.logger.fatal("Failed to push your local repository to {url}".format(url=remote_url))
-            self.logger.fatal("Please check your credentials and if you have sufficient permissions.")
+            self.logger.fatal("Please check your credentials and ensure you have sufficient permissions.")
             exit(0)
 
         print("Local branches has been pushed to {url}".format(url=remote_url))
@@ -403,7 +403,7 @@ class AzureDevopsBuildInteractive(object):
             return
 
         # Manual setup alternative credential in Azure Devops
-        self.logger.warning("Please head to https://dev.azure.com/{org}/_usersSettings/altcreds".format(
+        self.logger.warning("Please visit https://dev.azure.com/{org}/_usersSettings/altcreds".format(
             org=self.organization_name,
         ))
         self.logger.warning('Check "Enable alternate authentication credentials" and save your username and password.')
@@ -418,11 +418,11 @@ class AzureDevopsBuildInteractive(object):
         functionapps = list_function_app(self.cmd)
         functionapp_names = sorted([functionapp.name for functionapp in functionapps])
         if len(functionapp_names) < 1:
-            self.logger.critical("You do not have any existing functionapps associated with this account subscription.")
+            self.logger.critical("You do not have any existing function apps associated with this account subscription.")
             self.logger.critical("1. Please make sure you are logged into the right azure account by running `az account show` and checking the user.")  # pylint: disable=line-too-long
             self.logger.critical("2. If you are logged in as the right account please check the subscription you are using. Run `az account show` and view the name.")  # pylint: disable=line-too-long
             self.logger.critical("   If you need to set the subscription run `az account set --subscription \"{SUBSCRIPTION_NAME}\"`")  # pylint: disable=line-too-long
-            self.logger.critical("3. If you do not have a functionapp please create one in the portal.")
+            self.logger.critical("3. If you do not have a function app please create one")
             exit(1)
         choice_index = prompt_choice_list('Please choose the functionapp: ', functionapp_names)
         functionapp = [functionapp for functionapp in functionapps
@@ -452,8 +452,8 @@ class AzureDevopsBuildInteractive(object):
                 language_str = app_setting['value']
                 if language_str != local_language:
                     # We should not deploy if the local runtime language is not the same as that of their functionapp
-                    self.logger.critical("The local language you are using ({local}) does not match the language of your functionapp ({functionapps})".format(local=local_language, functionapps=language_str))  # pylint: disable=line-too-long
-                    self.logger.critical("Please look at the FUNCTIONS_WORKER_RUNTIME both in your local.settings.json and in your application settings on your azure functionapp.")  # pylint: disable=line-too-long
+                    self.logger.critical("The local language you are using ({local}) does not match the language of your function app ({functionapps})".format(local=local_language, functionapps=language_str))  # pylint: disable=line-too-long
+                    self.logger.critical("Please look at the FUNCTIONS_WORKER_RUNTIME both in your local.settings.json and in your application settings on your function app in Azure.")  # pylint: disable=line-too-long
                     exit(1)
                 if language_str == "python":
                     self.logger.info("detected that language used by functionapp is python")
@@ -530,7 +530,7 @@ class AzureDevopsBuildInteractive(object):
             project = [project for project in projects.value if project.name == project_names[choice_index]][0]
             self.project_name = project.name
         else:
-            self.logger.warning("There are no exisiting projects in this organization. You need to create a new project.")  # pylint: disable=line-too-long
+            self.logger.warning("There are no existing projects in this organization. You need to create a new project.")  # pylint: disable=line-too-long
             self._create_project()
 
     def _create_project(self):
