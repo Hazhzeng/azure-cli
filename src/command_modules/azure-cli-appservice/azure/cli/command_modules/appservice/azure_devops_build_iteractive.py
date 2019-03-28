@@ -344,8 +344,8 @@ class AzureDevopsBuildInteractive(object):
         if build.result == 'failed':
             url = "https://dev.azure.com/" + self.organization_name + "/" \
                   + self.project_name + "/_build/results?buildId=" + str(build.id)
-            self.logger.critical("Your build has failed")
-            self.logger.critical("To view details on why your build has failed please go to %s", url)
+            self.logger.critical("Your build has failed.")
+            self.logger.critical("To view details on why your build has failed please go to {url}".format(url=url))
             exit(1)
 
         # need to check if the release definition already exists
@@ -452,7 +452,7 @@ class AzureDevopsBuildInteractive(object):
                 language_str = app_setting['value']
                 if language_str != local_language:
                     # We should not deploy if the local runtime language is not the same as that of their functionapp
-                    self.logger.critical("ERROR: The local language you are using (%s) does not match the language of your functionapp (%s)", local_language, language_str)  # pylint: disable=line-too-long
+                    self.logger.critical("The local language you are using ({local}) does not match the language of your functionapp ({functionapps})".format(local=local_language, functionapps=language_str))  # pylint: disable=line-too-long
                     self.logger.critical("Please look at the FUNCTIONS_WORKER_RUNTIME both in your local.settings.json and in your application settings on your azure functionapp.")  # pylint: disable=line-too-long
                     exit(1)
                 if language_str == "python":
@@ -488,7 +488,7 @@ class AzureDevopsBuildInteractive(object):
         organizations = self.adbp.list_organizations()
         organization_names = sorted([organization.accountName for organization in organizations.value])
         if len(organization_names) < 1:
-            self.logger.error("There are not any existing organizations, you need to create a new organization.")
+            self.logger.warning("There are no existing organizations, you need to create a new organization.")
             self._create_organization()
             self.created_organization = True
         else:
