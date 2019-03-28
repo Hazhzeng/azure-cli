@@ -255,7 +255,7 @@ class AzureDevopsBuildInteractive(object):
         # Force push branches if repository is not clean
         remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
         remote_branches = self.adbp.get_azure_devops_repository_branches(self.organization_name, self.project_name, self.repository_name)
-        is_force_push = self._check_if_force_push_required(remote_branches)
+        is_force_push = self._check_if_force_push_required(remote_url, remote_branches)
 
         # Prompt user to generate a git credential
         self._check_if_git_credential_required()
@@ -372,7 +372,7 @@ class AzureDevopsBuildInteractive(object):
         print("To follow the release process go to {url}".format(url=url))
         self.release = release
 
-    def _check_if_force_push_required(self, remote_branches):
+    def _check_if_force_push_required(self, remote_url, remote_branches):
         force_push_required = False
         if remote_branches:
             self.logger.warning("The remote repository is not clean: {url}".format(url=remote_url))
