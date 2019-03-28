@@ -255,25 +255,19 @@ class AzureDevopsBuildInteractive(object):
         # Force push branches if repository is not clean
         remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
         remote_branches = self.adbp.get_azure_devops_repository_branches(self.organization_name, self.project_name, self.repository_name)
-        is_force_push = False
-        if remote_branches:
-            self.logger.warning("The remote repository is not clean: {url}".format(url=remote_url))
-            self.logger.warning("If you wish to continue, a force push will be commited and your local branches will overwrite the remote branches!")
-            self.logger.warning("Please ensure you have force push permission in {repo} repository.".format(repo=self.repository_name))
-            consent = prompt_y_n("I consent to force push all local branches to Azure Devops repository: ")
+        is_force_push = self._check_if_force_push_required(remote_branches)
 
-            if not consent:
-                self.adbp.remote_git_remote(self.repository_remote_name)
-                exit(0)
-            else:
-                is_force_push = True
+        # Prompt user to generate a git credential
+        self._check_if_git_credential_required()
 
         # If the repository does not exist, we will do a normal push
         # If the repository exists, we will do a force push
         try:
             self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=is_force_push)
         except GitOperationException as goe:
-            self.adbp.remote_git_remote(self.repository_remote_name)
+            self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
+            self.logger.fatal("Failed to push your local repository to {url}".format(url=remote_url))
+            self.logger.fatal("Please check your credentials and if you have sufficient permissions.")
             exit(0)
 
         print("Local branches has been pushed to {url}".format(url=remote_url))
@@ -294,6 +288,7 @@ class AzureDevopsBuildInteractive(object):
                     self.organization_name, self.project_name, self.repository_name
                 )
             except RoleAssignmentException:
+                self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
                 self.logger.error("To use the Azure DevOps Pipeline Build,")
                 self.logger.error("We need to assign a contributor role to the Azure Functions release service principle.")
                 self.logger.error("Please ensure you are the owner of the subscription, or have role assignment write permission.")
@@ -385,6 +380,38 @@ class AzureDevopsBuildInteractive(object):
             elif re.search('visualstudio', line):
                 return 'azure repos'
         return 'other'
+
+    def _check_if_force_push_required(self, remote_branches):
+        force_push_required = False
+        if remote_branches:
+            self.logger.warning("The remote repository is not clean: {url}".format(url=remote_url))
+            self.logger.warning("If you wish to continue, a force push will be commited and your local branches will overwrite the remote branches!")
+            self.logger.warning("Please ensure you have force push permission in {repo} repository.".format(repo=self.repository_name))
+            consent = prompt_y_n("I consent to force push all local branches to Azure Devops repository")
+
+            if not consent:
+                self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
+                exit(0)
+            else:
+                force_push_required = True
+
+        return force_push_required
+
+    def _check_if_git_credential_required(self):
+        # Username and password are not required if git credential manager exists
+        if self.adbp.check_git_credential_manager():
+            return
+
+        # Manual setup alternative credential in Azure Devops
+        self.logger.warning("Please head to https://dev.azure.com/{org}/_usersSettings/altcreds".format(
+            org=self.organization_name,
+        ))
+        self.logger.warning('Check "Enable alternate authentication credentials" and save your username and password.')
+        self.logger.warning("You may need to use this credential when pushing your code to Azure Devops repository.")
+        consent = prompt_y_n("I have setup alternative authentication credentials for {repo}".format(repo=self.repository_name))
+        if not consent:
+            self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
+            exit(0)
 
     def _select_functionapp(self):
         self.logger.info("Retrieving functionapp names.")

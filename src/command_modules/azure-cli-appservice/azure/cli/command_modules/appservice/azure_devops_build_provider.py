@@ -103,6 +103,9 @@ class AzureDevopsBuildProvider(object):  # pylint: disable=too-many-public-metho
     def check_git_local_repository(self):
         """Check if local git repository does exist"""
         return RepositoryManager.check_git_local_repository()
+
+    def check_git_credential_manager(self):
+        return RepositoryManager.check_git_credential_manager()
     
     def check_git_remote(self, organization_name, project_name, repository_name):
         """Check if local git remote name does exist"""
@@ -110,11 +113,10 @@ class AzureDevopsBuildProvider(object):  # pylint: disable=too-many-public-metho
                                                project_name=project_name, creds=self._creds)
         return repository_manager.check_git_remote(repository_name, remote_prefix="azuredevops")
 
-    def remote_git_remote(self, organization_name, project_name, repository_name):
+    def remove_git_remote(self, organization_name, project_name, repository_name):
         repository_manager = RepositoryManager(organization_name=organization_name,
-                                               project_name=project_name,
-                                               _creds=self._creds)
-        return repository_manager.remote_git_remote(repository_name, remote_prefix="azuredevops")
+                                               project_name=project_name, creds=self._creds)
+        return repository_manager.remove_git_remote(repository_name, remote_prefix="azuredevops")
 
     def get_local_git_remote_name(self, organization_name, project_name, repository_name):
         """Get the local git remote name for current repository"""
