@@ -13,8 +13,7 @@ from azure_functions_devops_build.constants import (LINUX_CONSUMPTION, LINUX_DED
 from azure_functions_devops_build.exceptions import (
     GitOperationException,
     RoleAssignmentException,
-    LanguageNotSupportException,
-    ReleaseErrorException
+    LanguageNotSupportException
 )
 from .azure_devops_build_provider import AzureDevopsBuildProvider
 from .custom import list_function_app, show_webapp, get_app_settings
@@ -377,7 +376,7 @@ class AzureDevopsBuildInteractive(object):
                 proj=self.project_name,
                 release_id=release.id
             )
-        except ReleaseErrorException:
+        except Exception:
             self.logger.critical("Sorry, your release has failed in Azure Devops.")
             self.logger.critical("To view details on why your release has failed please visit {url}".format(url=url))
             exit(1)
