@@ -17,7 +17,9 @@ TEST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sample_dotne
 class DevopsBuildCommandsTest(ScenarioTest):
     def setUp(self):
         super().setUp()
-        # You must be the organization owner and the subscription owner
+        # 1. Install devops extension 'az extension add --name azure-devops'
+        # 2. To login with 'az login' and 'az devops login' to run the tests (devops extension required)
+        # 3. Must be the organization owner and the subscription owner to run the test
         self.azure_devops_organization = "azure-functions-devops-build-test" 
         self.os_type = "Windows"
         self.runtime = "dotnet"
@@ -59,17 +61,58 @@ class DevopsBuildCommandsTest(ScenarioTest):
     @ResourceGroupPreparer()
     @StorageAccountPreparer(parameter_name='storage_account_for_test')
     def test_devops_build_mismatch_runtime(self, resource_group, resource_group_location, storage_account_for_test):
-        self.kwargs.update({'rt': 'node'})
         # Overwrite function runtime to use node
+        self.kwargs.update({'rt': 'node'})
         self._setUpDevopsEnvironment(resource_group, resource_group_location, storage_account_for_test)
         
         # Test devops build command (mismatched local_runtime:dotnet vs remote_runtime:node)
-        self.cmd('functionapp devops-build create --organization-name {org} --project-name {proj}'
-                            ' --repository-name {repo} --functionapp-name {fn} --allow-force-push true'
-                            ' --overwrite-yaml true', expect_failure=True)
-                                        
-        self._tearDownDevopsEnvironment()
-    
+        try:
+            self.cmd('functionapp devops-build create --organization-name {org} --project-name {proj}'
+                                ' --repository-name {repo} --functionapp-name {fn} --allow-force-push true'
+                                ' --overwrite-yaml true', expect_failure=True)
+        finally:
+            self._tearDownDevopsEnvironment()
+
+    @ResourceGroupPreparer()
+    @StorageAccountPreparer(parameter_name='storage_account_for_test')
+    def test_devops_build_mismatch_functionapp(self, resource_group, resource_group_location, storage_account_for_test):
+        self._setUpDevopsEnvironment(resource_group, resource_group_location, storage_account_for_test)
+        
+        try:
+            self.cmd('functionapp devops-build create --functionapp-name {mismatch}'.format(
+                mismatch=self.create_random_name(prefix='mismatch_fn', length=24)
+            ), expect_failure=True)
+        finally:
+            self._tearDownDevopsEnvironment()
+
+    @ResourceGroupPreparer()
+    @StorageAccountPreparer(parameter_name='storage_account_for_test')
+    def test_devops_build_mismatch_organization(self, resource_group, resource_group_location, storage_account_for_test):
+        self._setUpDevopsEnvironment(resource_group, resource_group_location, storage_account_for_test)
+        
+        try:
+            self.cmd('functionapp devops-build create --functionapp-name {fn} --organization-name {mismatch}'.format(
+                fn=self.functionapp,
+                mismatch=self.create_random_name(prefix='mismatch_org', length=24)
+            ), expect_failure=True)
+        finally:
+            self._tearDownDevopsEnvironment()
+
+    @ResourceGroupPreparer()
+    @StorageAccountPreparer(parameter_name='storage_account_for_test')
+    def test_devops_build_mismatch_project(self, resource_group, resource_group_location, storage_account_for_test):
+        self._setUpDevopsEnvironment(resource_group, resource_group_location, storage_account_for_test)
+        
+        try:
+            self.cmd('functionapp devops-build create --functionapp-name {fn} --organization-name {org}'
+                     ' --project-name {mismatch}'.format(
+                fn=self.functionapp,
+                org=self.azure_devops_organization,
+                mismatch=self.create_random_name(prefix='mismatch_org', length=24)
+            ), expect_failure=True)
+        finally:
+            self._tearDownDevopsEnvironment()
+
     # Devops environment utilities
     def _setUpDevopsEnvironment(self, resource_group, resource_group_location, storage_account_for_test):
         self.kwargs.update({
