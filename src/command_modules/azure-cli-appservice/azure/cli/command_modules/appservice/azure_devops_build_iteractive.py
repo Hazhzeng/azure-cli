@@ -39,8 +39,8 @@ class AzureDevopsBuildInteractive(object):
         logger : a knack logger to log the info/error messages
     """
 
-    def __init__(self, cmd, logger, functionapp_name, organization_name, project_name,
-                 overwrite_yaml, use_local_settings, local_git):
+    def __init__(self, cmd, logger, functionapp_name, organization_name, project_name, repository_name,
+                 overwrite_yaml, allow_force_push, use_local_settings):
         self.adbp = AzureDevopsBuildProvider(cmd.cli_ctx)
         self.cmd = cmd
         self.logger = logger
@@ -52,7 +52,7 @@ class AzureDevopsBuildInteractive(object):
         self.functionapp_type = None
         self.organization_name = organization_name
         self.project_name = project_name
-        self.repository_name = None
+        self.repository_name = repository_name
         self.repository_remote_name = None
         self.service_endpoint_name = None
         self.build_definition_name = None
@@ -68,8 +68,8 @@ class AzureDevopsBuildInteractive(object):
         self.created_organization = False
         self.created_project = False
         self.overwrite_yaml = str2bool(overwrite_yaml)
+        self.allow_force_push = allow_force_push
         self.use_local_settings = str2bool(use_local_settings)
-        self.local_git = local_git
 
     def interactive_azure_devops_build(self):
         """Main interactive flow which is the only function that should be used outside of this
@@ -217,25 +217,24 @@ class AzureDevopsBuildInteractive(object):
             self.logger.warning("Detected local git repository.")
 
         # Collect repository name on Azure Devops
-        expected_repository = prompt("Push to which Azure Devops repository (default: {repo}): ".format(
-                repo=self.project_name))
-        if not expected_repository:
-            expected_repository = self.project_name
+        if not self.repository_name:
+            self.repository_name = prompt("Push to which Azure Devops repository (default: {repo}): ".format(repo=self.project_name))
+            if not self.repository_name:  # Select default value
+                self.repository_name = self.project_name
 
-        expected_remote_name = self.adbp.get_local_git_remote_name(self.organization_name, self.project_name, expected_repository)
-        expected_remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, expected_repository)
+        expected_remote_name = self.adbp.get_local_git_remote_name(self.organization_name, self.project_name, self.repository_name)
+        expected_remote_url = self.adbp.get_azure_devops_repo_url(self.organization_name, self.project_name, self.repository_name)
 
         # If local repository already has a remote
         # Let the user to know s/he can push to the remote directly for context update
         # Or let s/he remove the git remote manually
-        has_local_git_remote = self.adbp.check_git_remote(self.organization_name, self.project_name, expected_repository)
+        has_local_git_remote = self.adbp.check_git_remote(self.organization_name, self.project_name, self.repository_name)
         if has_local_git_remote:
             self.logger.warning("There's a git remote bound to {url}.".format(url=expected_remote_url))
             self.logger.warning("To update the repository and trigger an Azure Devops build, please use 'git push {remote} master'".format(remote=expected_remote_name))
             exit(1)
 
         # Setup a local git repository and create a new commit on top of this context
-        self.repository_name = expected_repository
         try:
             self.adbp.setup_local_git_repository(self.organization_name, self.project_name, self.repository_name)
         except GitOperationException as goe:
@@ -390,7 +389,11 @@ class AzureDevopsBuildInteractive(object):
             self.logger.warning("The remote repository is not clean: {url}".format(url=remote_url))
             self.logger.warning("If you wish to continue, a force push will be commited and your local branches will overwrite the remote branches!")
             self.logger.warning("Please ensure you have force push permission in {repo} repository.".format(repo=self.repository_name))
-            consent = prompt_y_n("I consent to force push all local branches to Azure Devops repository")
+
+            if self.allow_force_push is None:
+                consent = prompt_y_n("I consent to force push all local branches to Azure Devops repository")
+            else:
+                consent = str2bool(self.allow_force_push)
 
             if not consent:
                 self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)

@@ -400,5 +400,7 @@ def load_arguments(self, _):
         c.argument('functionapp_name', help="Name of the Azure Function App that you want to use", required=False)
         c.argument('organization_name', help="Name of the Azure DevOps organization that you want to use", required=False)
         c.argument('project_name', help="Name of the Azure DevOps project that you want to use", required=False)
+        c.argument('repository_name', help="Name of the Azure Devops repository that you want to use", required=False)
         c.argument('overwrite_yaml', help="If you have an existing yaml, should it be overwritten?", arg_type=get_three_state_flag(return_label=True), required=False)
+        c.argument('allow_force_push', help="If Azure Devops repository is not clean, should it overwrite remote content?", arg_type=get_three_state_flag(return_label=True), required=False)
         c.argument('use_local_settings', help="Use your local settings in your functionapp settings?", arg_type=get_three_state_flag(return_label=True), required=False)
