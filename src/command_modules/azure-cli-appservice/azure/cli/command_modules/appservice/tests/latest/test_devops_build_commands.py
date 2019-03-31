@@ -2,29 +2,20 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License. See License.txt in the project root for license information.
 # --------------------------------------------------------------------------------------------
-import json
 import unittest
-import jmespath
-import mock
 import uuid
 import os
-import time
-import tempfile
-import requests
 
 from azure_devtools.scenario_tests import AllowLargeResponse, record_only
-from azure.cli.testsdk import (ScenarioTest, LiveScenarioTest, ResourceGroupPreparer,
-                               StorageAccountPreparer, JMESPathCheck)
+from azure_functions_devops_build.exceptions import RoleAssignmentException
+from azure.cli.testsdk import ScenarioTest,  ResourceGroupPreparer, StorageAccountPreparer, JMESPathCheck
 
-TEST_DIR = os.path.abspath(os.path.join(os.path.abspath(__file__), '..'))
-
-# pylint: disable=line-too-long
+TEST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sample_dotnet_function'))
 
 class DevopsBuildCommandsTest(ScenarioTest):
     def setUp(self):
         super().setUp()
-
-        # You must be the organization owner
+        # You must be the organization owner and the subscription owner
         self.azure_devops_organization = "azure-functions-devops-build-test" 
         self.os_type = "Windows"
         self.runtime = "dotnet"
@@ -33,19 +24,64 @@ class DevopsBuildCommandsTest(ScenarioTest):
         self.azure_devops_project = self.create_random_name(prefix='test-project-e2e', length=24)
         self.azure_devops_repository = self.create_random_name(prefix='test-repository-e2e', length=24)
 
+        self.kwargs.update({
+            'rg': resource_group,
+            'sa': storage_account_for_test,
+            'ot': self.os_type,
+            'rt': self.runtime,
+            'cpl': resource_group_location,
+            'org': self.azure_devops_organization,
+            'proj': self.azure_devops_project,
+            'repo': self.azure_devops_repository,
+            'fn': self.functionapp,
+        })
+
     @ResourceGroupPreparer()
     @StorageAccountPreparer(parameter_name='storage_account_for_test')
     def test_devops_build_command(self, resource_group, resource_group_location, storage_account_for_test):
+        self._setUpDevopsEnvironment()
+
+        # Test devops build command
+        try:
+            result = self.cmd('functionapp devops-build create --organization-name {org} --project-name {proj}'
+                              ' --repository-name {repo} --functionapp-name {fn} --allow-force-push true'
+                              ' --overwrite-yaml true').get_output_in_json()
+                                        
+            self.assertEqual(result['functionapp_name'], self.functionapp)
+            self.assertEqual(result['functionapp_name'], self.functionapp)
+            self.assertEqual(result['organization_name'], self.azure_devops_organization)
+            self.assertEqual(result['project_name'], self.azure_devops_project)
+            self.assertEqual(result['repository_name'], self.azure_devops_repository)
+        except RoleAssignmentException:
+            raise unittest.SkipTest('You must be the owner of the subscription')
+        finally:
+            self._tearDownDevopsEnvironment()
+
+    @ResourceGroupPreparer()
+    @StorageAccountPreparer(parameter_name='storage_account_for_test')
+    def test_devops_build_command(self, resource_group, resource_group_location, storage_account_for_test):
+        self._setUpDevopsEnvironment()
+
+        # Test devops build command
+        try:
+            result = self.cmd('functionapp devops-build create --organization-name {org} --project-name {proj}'
+                              ' --repository-name {repo} --functionapp-name {fn} --allow-force-push true'
+                              ' --overwrite-yaml true').get_output_in_json()
+                                        
+            self.assertEqual(result['functionapp_name'], self.functionapp)
+            self.assertEqual(result['functionapp_name'], self.functionapp)
+            self.assertEqual(result['organization_name'], self.azure_devops_organization)
+            self.assertEqual(result['project_name'], self.azure_devops_project)
+            self.assertEqual(result['repository_name'], self.azure_devops_repository)
+        except RoleAssignmentException:
+            raise unittest.SkipTest('You must be the owner of the subscription')
+        finally:
+            self._tearDownDevopsEnvironment()
+
+    def _setUpDevopsEnvironment(self):
         # Create a new functionapp
         self.cmd('functionapp create --resource-group {rg} --storage-account {sa}'
-                ' --os-type {ot} --runtime {rt} --name {fn} --consumption-plan-location {cpl}'.format(
-            rg=resource_group,
-            sa=storage_account_for_test,
-            ot=self.os_type,
-            rt=self.runtime,
-            fn=self.functionapp,
-            cpl=resource_group_location
-        ), checks=[
+                ' --os-type {ot} --runtime {rt} --name {fn} --consumption-plan-location {cpl}', checks=[
             JMESPathCheck('name', self.functionapp),
             JMESPathCheck('resourceGroup', resource_group),
         ])
@@ -54,23 +90,24 @@ class DevopsBuildCommandsTest(ScenarioTest):
         self.cmd('extension add --name azure-devops');
 
         # Create a new project in Azure Devops
-        result = self.cmd('devops project create --organization https://dev.azure.com/{org} --name {proj}'.format(
-            org=self.azure_devops_organization,
-            proj=self.azure_devops_project
-        ), checks=[
+        result = self.cmd('devops project create --organization https://dev.azure.com/{org} --name {proj}', checks=[
             JMESPathCheck('name', self.azure_devops_project),
         ]).get_output_in_json()
         azure_devops_project_id = result['id']
 
         # Create a new repository in Azure Devops
-        self.cmd('repos create --organization https://dev.azure.com/{org} --project {proj} --name {repo}'.format(
-            org=self.azure_devops_organization,
-            proj=self.azure_devops_project,
-            repo=self.azure_devops_repository,
-        ), checks=[
+        self.cmd('repos create --organization https://dev.azure.com/{org} --project {proj} --name {repo}', checks=[
             JMESPathCheck('name', self.azure_devops_repository),
         ]).get_output_in_json()
         azure_devops_repository_id = result['id']
+
+        # Change directory to sample functionapp
+        old_directory = os.getcwd()
+        os.chdir(TEST_DIR)
+
+    def _tearDownDevopsEnvironment(self):
+        # Change directory back
+        os.chdir(old_directory)
 
         # Remove Azure Devops project
         self.cmd('devops project delete --organization https://dev.azure.com/{org} --id {id} --yes'.format(

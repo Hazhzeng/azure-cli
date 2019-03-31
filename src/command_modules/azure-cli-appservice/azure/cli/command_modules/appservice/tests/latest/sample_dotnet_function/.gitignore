@@ -263,4 +263,5 @@ paket-files/
 __pycache__/
 *.pyc
 
-azure-pipelines.yml
+# Test Environment Recovery
+.git/
