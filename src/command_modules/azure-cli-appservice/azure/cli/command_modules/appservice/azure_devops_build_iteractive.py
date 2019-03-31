@@ -14,7 +14,8 @@ from azure_functions_devops_build.constants import (LINUX_CONSUMPTION, LINUX_DED
 from azure_functions_devops_build.exceptions import (
     GitOperationException,
     RoleAssignmentException,
-    LanguageNotSupportException
+    LanguageNotSupportException,
+    ReleaseErrorException
 )
 from .azure_devops_build_provider import AzureDevopsBuildProvider
 from .custom import list_function_app, show_webapp, get_app_settings
@@ -362,15 +363,16 @@ class AzureDevopsBuildInteractive(object):
 
         try:
             release = self.adbp.create_release(self.organization_name, self.project_name, self.release_definition_name)
-            url = "https://dev.azure.com/{org}/{proj}/_releaseProgress?_a=release-environment-logs&releaseId={release_id}".format(
-                org=self.organization_name,
-                proj=self.project_name,
-                release_id=release.id
-            )
-        except Exception:
+        except ReleaseErrorException:
+            url = "https://dev.azure.com/{org}/{proj}/_release".format(org=self.organization_name, proj=self.project_name)
             raise CLIError("Sorry, your release has failed in Azure Devops.{ls}"
                 "To view details on why your release has failed please visit {url}".format(url=url, ls=os.linesep))
 
+        url = "https://dev.azure.com/{org}/{proj}/_releaseProgress?_a=release-environment-logs&releaseId={release_id}".format(
+            org=self.organization_name,
+            proj=self.project_name,
+            release_id=release.id
+        )
         print("To follow the release process go to {url}".format(url=url))
         self.release = release
 
