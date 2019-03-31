@@ -284,7 +284,7 @@ class AzureDevopsBuildInteractive(object):
             except RoleAssignmentException:
                 self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
                 raise CLIError("To use the Azure DevOps Pipeline Build,{ls}"
-                    "We need to assign a contributor role to the Azure Functions release service principle."
+                    "We need to assign a contributor role to the Azure Functions release service principle.{ls}"
                     "Please ensure you are the owner of the subscription, or have role assignment write permission.".format(ls=os.linesep))
         else:
             service_endpoint = service_endpoints[0]
@@ -323,12 +323,11 @@ class AzureDevopsBuildInteractive(object):
         # wait for artifacts / build to complete
         artifacts = []
         counter = 0
-        while artifacts == []:
+        build = None
+        while build is None or build.result is None:
             time.sleep(5)
-            print("building artifacts ... {counter}s".format(counter=counter))
             build = self._get_build_by_id(self.organization_name, self.project_name, self.build.id)
-            if build.status == 'completed':
-                break
+            print("building artifacts ... {counter}s ({status})".format(counter=counter, status=build.status))
             artifacts = self.adbp.list_artifacts(self.organization_name, self.project_name, self.build.id)
             counter += 5
 
@@ -340,6 +339,8 @@ class AzureDevopsBuildInteractive(object):
             )
             raise CLIError("Sorry, your build has failed in Azure Devops.{ls}"
                 "To view details on why your build has failed please visit {url}".format(url=url, ls=os.linesep))
+        elif build.result == 'succeeded':
+            print("You build has completed. Composing a release definitions...")
 
         # need to check if the release definition already exists
         release_definitions = self.adbp.list_release_definitions(self.organization_name, self.project_name)
@@ -359,6 +360,7 @@ class AzureDevopsBuildInteractive(object):
             self.logger.warning("Detected release definition {name}".format(name=self.release_definition_name))
         
         # The build artifact takes some time to propagate
+        print("Prepare to release the artifact...")
         time.sleep(5)
 
         try:
