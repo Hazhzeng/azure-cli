@@ -8,6 +8,7 @@ import time
 import re
 import json
 from knack.prompting import prompt_choice_list, prompt_y_n, prompt
+from knack.util import CLIError
 from azure_functions_devops_build.constants import (LINUX_CONSUMPTION, LINUX_DEDICATED, WINDOWS,
                                                     PYTHON, NODE, DOTNET, JAVA)
 from azure_functions_devops_build.exceptions import (
@@ -119,13 +120,11 @@ class AzureDevopsBuildInteractive(object):
 
     def pre_checks(self):
         if not os.path.exists('host.json'):
-            self.logger.critical("There is no host.json in the current directory.")
-            self.logger.critical("Functionapps must contain a host.json in their root.")
-            exit(1)
+            raise CLIError("There is no host.json in the current directory.{ls}"
+                "Functionapps must contain a host.json in their root.".format(ls=os.linesep))
 
         if not self.adbp.check_git():
-            self.logger.critical("The program requires git source control to operate, please install git.")
-            exit(1)
+            raise CLIError("The program requires git source control to operate, please install git.")
 
     def process_functionapp(self):
         """Helper to retrieve information about a functionapp"""
@@ -145,8 +144,7 @@ class AzureDevopsBuildInteractive(object):
         try:
             self.functionapp_language, self.storage_name = self._find_language_and_storage_name(app_settings)
         except LanguageNotSupportException as lnse:
-            self.logger.critical("Sorry, currently we do not support {language}.".format(language=lnse.message))
-            exit(1)
+            raise CLIError("Sorry, currently we do not support {language}.".format(language=lnse.message))
 
     def process_organization(self):
         """Helper to retrieve information about an organization / create a new one"""
@@ -208,8 +206,7 @@ class AzureDevopsBuildInteractive(object):
             try:
                 self.adbp.create_yaml(self.functionapp_language, self.functionapp_type)
             except LanguageNotSupportException as lnse:
-                self.logger.critical("Sorry, currently we do not support {language}.".format(language=lnse.message))
-                exit(1)
+                raise CLIError("Sorry, currently we do not support {language}.".format(language=lnse.message))
 
     def process_local_repository(self):
         has_local_git_repository = self.adbp.check_git_local_repository()
@@ -230,17 +227,15 @@ class AzureDevopsBuildInteractive(object):
         # Or let s/he remove the git remote manually
         has_local_git_remote = self.adbp.check_git_remote(self.organization_name, self.project_name, self.repository_name)
         if has_local_git_remote:
-            self.logger.warning("There's a git remote bound to {url}.".format(url=expected_remote_url))
-            self.logger.warning("To update the repository and trigger an Azure Devops build, please use 'git push {remote} master'".format(remote=expected_remote_name))
-            exit(1)
+            raise CLIError("There's a git remote bound to {url}.{ls}"
+                "To update the repository and trigger an Azure Devops build, please use 'git push {remote} master'".format(
+                    url=expected_remote_url, remote=expected_remote_name, ls=os.linesep))
 
         # Setup a local git repository and create a new commit on top of this context
         try:
             self.adbp.setup_local_git_repository(self.organization_name, self.project_name, self.repository_name)
-        except GitOperationException as goe:
-            self.logger.fatal("Failed to setup local git repository.")
-            self.logger.fatal(goe.message)
-            exit(1)
+        except GitOperationException:
+            raise CLIError("Failed to setup local git repository.")
 
         self.repository_remote_name = expected_remote_name
         print("Added git remote {remote}".format(remote=expected_remote_name))
@@ -265,9 +260,8 @@ class AzureDevopsBuildInteractive(object):
             self.adbp.push_local_to_azure_devops_repository(self.organization_name, self.project_name, self.repository_name, force=is_force_push)
         except GitOperationException as goe:
             self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
-            self.logger.fatal("Failed to push your local repository to {url}".format(url=remote_url))
-            self.logger.fatal("Please check your credentials and ensure you have sufficient permissions.")
-            exit(0)
+            raise CLIError("Failed to push your local repository to {url}{ls}"
+                "Please check your credentials and ensure you have sufficient permissions.".format(url=remote_url, ls=os.linesep))
 
         print("Local branches has been pushed to {url}".format(url=remote_url))
 
@@ -288,10 +282,9 @@ class AzureDevopsBuildInteractive(object):
                 )
             except RoleAssignmentException:
                 self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
-                self.logger.error("To use the Azure DevOps Pipeline Build,")
-                self.logger.error("We need to assign a contributor role to the Azure Functions release service principle.")
-                self.logger.error("Please ensure you are the owner of the subscription, or have role assignment write permission.")
-                exit(1)
+                raise CLIError("To use the Azure DevOps Pipeline Build,{ls}"
+                    "We need to assign a contributor role to the Azure Functions release service principle."
+                    "Please ensure you are the owner of the subscription, or have role assignment write permission.".format(ls=os.linesep))
         else:
             service_endpoint = service_endpoints[0]
             self.logger.warning("Detected service endpoint {name}".format(name=service_endpoint.name))
@@ -344,9 +337,8 @@ class AzureDevopsBuildInteractive(object):
                 proj=self.project_name,
                 build_id=build.id
             )
-            self.logger.critical("Sorry, your build has failed in Azure Devops.")
-            self.logger.critical("To view details on why your build has failed please visit {url}".format(url=url))
-            exit(1)
+            raise CLIError("Sorry, your build has failed in Azure Devops.{ls}"
+                "To view details on why your build has failed please visit {url}".format(url=url, ls=os.linesep))
 
         # need to check if the release definition already exists
         release_definitions = self.adbp.list_release_definitions(self.organization_name, self.project_name)
@@ -376,9 +368,8 @@ class AzureDevopsBuildInteractive(object):
                 release_id=release.id
             )
         except Exception:
-            self.logger.critical("Sorry, your release has failed in Azure Devops.")
-            self.logger.critical("To view details on why your release has failed please visit {url}".format(url=url))
-            exit(1)
+            raise CLIError("Sorry, your release has failed in Azure Devops.{ls}"
+                "To view details on why your release has failed please visit {url}".format(url=url, ls=os.linesep))
 
         print("To follow the release process go to {url}".format(url=url))
         self.release = release
@@ -397,7 +388,7 @@ class AzureDevopsBuildInteractive(object):
 
             if not consent:
                 self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
-                exit(0)
+                raise CLIError("Failed to obtain your consent.")
             else:
                 force_push_required = True
 
@@ -417,19 +408,18 @@ class AzureDevopsBuildInteractive(object):
         consent = prompt_y_n("I have setup alternative authentication credentials for {repo}".format(repo=self.repository_name))
         if not consent:
             self.adbp.remove_git_remote(self.organization_name, self.project_name, self.repository_name)
-            exit(0)
+            raise CLIError("Failed to obtain your consent.")
 
     def _select_functionapp(self):
         self.logger.info("Retrieving functionapp names.")
         functionapps = list_function_app(self.cmd)
         functionapp_names = sorted([functionapp.name for functionapp in functionapps])
         if len(functionapp_names) < 1:
-            self.logger.critical("You do not have any existing function apps associated with this account subscription.")
-            self.logger.critical("1. Please make sure you are logged into the right azure account by running `az account show` and checking the user.")  # pylint: disable=line-too-long
-            self.logger.critical("2. If you are logged in as the right account please check the subscription you are using. Run `az account show` and view the name.")  # pylint: disable=line-too-long
-            self.logger.critical("   If you need to set the subscription run `az account set --subscription \"{SUBSCRIPTION_NAME}\"`")  # pylint: disable=line-too-long
-            self.logger.critical("3. If you do not have a function app please create one")
-            exit(1)
+            raise CLIError("You do not have any existing function apps associated with this account subscription.{ls}"
+                "1. Please make sure you are logged into the right azure account by running 'az account show' and checking the user.{ls}"
+                "2. If you are logged in as the right account please check the subscription you are using. Run 'az account show' and view the name.{ls}"
+                "   If you need to set the subscription run 'az account set --subscription {SUBSCRIPTION_NAME}'{ls}"
+                "3. If you do not have a function app please create one".format(ls=os.linesep))
         choice_index = prompt_choice_list('Please choose the functionapp: ', functionapp_names)
         functionapp = [functionapp for functionapp in functionapps
                        if functionapp.name == functionapp_names[choice_index]][0]
@@ -444,11 +434,9 @@ class AzureDevopsBuildInteractive(object):
         try:
             local_language = settings['Values']['FUNCTIONS_WORKER_RUNTIME']
         except KeyError:
-            self.logger.critical('The app \'FUNCTIONS_WORKER_RUNTIME\' setting is not set in the local.settings.json file')  # pylint: disable=line-too-long
-            exit(1)
+            raise CLIError("The app 'FUNCTIONS_WORKER_RUNTIME' setting is not set in the local.settings.json file")
         if local_language == '':
-            self.logger.critical('The app \'FUNCTIONS_WORKER_RUNTIME\' setting is not set in the local.settings.json file')  # pylint: disable=line-too-long
-            exit(1)
+            raise CLIError("The app 'FUNCTIONS_WORKER_RUNTIME' setting is not set in the local.settings.json file")
         return local_language
 
     def _find_language_and_storage_name(self, app_settings):
@@ -458,9 +446,10 @@ class AzureDevopsBuildInteractive(object):
                 language_str = app_setting['value']
                 if language_str != local_language:
                     # We should not deploy if the local runtime language is not the same as that of their functionapp
-                    self.logger.critical("The local language you are using ({local}) does not match the language of your function app ({functionapps})".format(local=local_language, functionapps=language_str))  # pylint: disable=line-too-long
-                    self.logger.critical("Please look at the FUNCTIONS_WORKER_RUNTIME both in your local.settings.json and in your application settings on your function app in Azure.")  # pylint: disable=line-too-long
-                    exit(1)
+                    raise CLIError("The local language you are using ({local}) does not match the language of your function app ({functionapps}){ls}"
+                        "Please look at the FUNCTIONS_WORKER_RUNTIME both in your local.settings.json and in your application settings on your function app in Azure.".format(
+                            local=local_language, functionapps=language_str, ls=os.linesep
+                        ))
                 if language_str == "python":
                     self.logger.info("detected that language used by functionapp is python")
                     language = PYTHON
@@ -570,8 +559,7 @@ class CmdSelectors(object):
         functionapp_match = [functionapp for functionapp in functionapps
                              if functionapp.name == functionapp_name]
         if not functionapp_match:
-            self.logger.error("""Error finding functionapp. Please check that the functionapp exists using 'az functionapp list'""")  # pylint: disable=line-too-long
-            exit(1)
+            raise CLIError("Error finding functionapp. Please check that the functionapp exists using 'az functionapp list")
         else:
             functionapp = functionapp_match[0]
         return functionapp
@@ -581,8 +569,7 @@ class CmdSelectors(object):
         organization_match = [organization for organization in organizations.value
                               if organization.accountName == organization_name]
         if not organization_match:
-            self.logger.error("""Error finding organization. Please check that the organization exists by logging onto your dev.azure.com acocunt""")  # pylint: disable=line-too-long
-            exit(1)
+            raise CLIError("Error finding organization. Please check that the organization exists by logging onto your dev.azure.com acocunt")
         else:
             organization = organization_match[0]
         return organization
@@ -593,8 +580,7 @@ class CmdSelectors(object):
             [project for project in projects.value if project.name == project_name]
 
         if not project_match:
-            self.logger.error("Error finding project. Please check that the project exists by logging onto your dev.azure.com acocunt")  # pylint: disable=line-too-long
-            exit(1)
+            raise CLIError("Error finding project. Please check that the project exists by logging onto your dev.azure.com acocunt")
         else:
             project = project_match[0]
         return project
