@@ -6,10 +6,12 @@ import unittest
 import uuid
 import os
 
+from knack.util import CLIError
 from azure_devtools.scenario_tests import AllowLargeResponse, record_only
 from azure_functions_devops_build.exceptions import RoleAssignmentException
 from azure.cli.testsdk import ScenarioTest,  ResourceGroupPreparer, StorageAccountPreparer, JMESPathCheck
 
+CURR_DIR = os.getcwd()
 TEST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sample_dotnet_function'))
 
 class DevopsBuildCommandsTest(ScenarioTest):
@@ -25,11 +27,8 @@ class DevopsBuildCommandsTest(ScenarioTest):
         self.azure_devops_repository = self.create_random_name(prefix='test-repository-e2e', length=24)
 
         self.kwargs.update({
-            'rg': resource_group,
-            'sa': storage_account_for_test,
             'ot': self.os_type,
             'rt': self.runtime,
-            'cpl': resource_group_location,
             'org': self.azure_devops_organization,
             'proj': self.azure_devops_project,
             'repo': self.azure_devops_repository,
@@ -39,8 +38,8 @@ class DevopsBuildCommandsTest(ScenarioTest):
     @ResourceGroupPreparer()
     @StorageAccountPreparer(parameter_name='storage_account_for_test')
     def test_devops_build_command(self, resource_group, resource_group_location, storage_account_for_test):
-        self._setUpDevopsEnvironment()
-
+        self._setUpDevopsEnvironment(resource_group, resource_group_location, storage_account_for_test)
+        
         # Test devops build command
         try:
             result = self.cmd('functionapp devops-build create --organization-name {org} --project-name {proj}'
@@ -52,33 +51,33 @@ class DevopsBuildCommandsTest(ScenarioTest):
             self.assertEqual(result['organization_name'], self.azure_devops_organization)
             self.assertEqual(result['project_name'], self.azure_devops_project)
             self.assertEqual(result['repository_name'], self.azure_devops_repository)
-        except RoleAssignmentException:
+        except CLIError as ce:
             raise unittest.SkipTest('You must be the owner of the subscription')
         finally:
             self._tearDownDevopsEnvironment()
 
     @ResourceGroupPreparer()
     @StorageAccountPreparer(parameter_name='storage_account_for_test')
-    def test_devops_build_command(self, resource_group, resource_group_location, storage_account_for_test):
-        self._setUpDevopsEnvironment()
-
-        # Test devops build command
-        try:
-            result = self.cmd('functionapp devops-build create --organization-name {org} --project-name {proj}'
-                              ' --repository-name {repo} --functionapp-name {fn} --allow-force-push true'
-                              ' --overwrite-yaml true').get_output_in_json()
+    def test_devops_build_mismatch_runtime(self, resource_group, resource_group_location, storage_account_for_test):
+        self.kwargs.update({'rt': 'node'})
+        # Overwrite function runtime to use node
+        self._setUpDevopsEnvironment(resource_group, resource_group_location, storage_account_for_test)
+        
+        # Test devops build command (mismatched local_runtime:dotnet vs remote_runtime:node)
+        self.cmd('functionapp devops-build create --organization-name {org} --project-name {proj}'
+                            ' --repository-name {repo} --functionapp-name {fn} --allow-force-push true'
+                            ' --overwrite-yaml true', expect_failure=True)
                                         
-            self.assertEqual(result['functionapp_name'], self.functionapp)
-            self.assertEqual(result['functionapp_name'], self.functionapp)
-            self.assertEqual(result['organization_name'], self.azure_devops_organization)
-            self.assertEqual(result['project_name'], self.azure_devops_project)
-            self.assertEqual(result['repository_name'], self.azure_devops_repository)
-        except RoleAssignmentException:
-            raise unittest.SkipTest('You must be the owner of the subscription')
-        finally:
-            self._tearDownDevopsEnvironment()
+        self._tearDownDevopsEnvironment()
+    
+    # Devops environment utilities
+    def _setUpDevopsEnvironment(self, resource_group, resource_group_location, storage_account_for_test):
+        self.kwargs.update({
+            'rg': resource_group,
+            'cpl': resource_group_location,
+            'sa': storage_account_for_test,
+        })
 
-    def _setUpDevopsEnvironment(self):
         # Create a new functionapp
         self.cmd('functionapp create --resource-group {rg} --storage-account {sa}'
                 ' --os-type {ot} --runtime {rt} --name {fn} --consumption-plan-location {cpl}', checks=[
@@ -93,24 +92,22 @@ class DevopsBuildCommandsTest(ScenarioTest):
         result = self.cmd('devops project create --organization https://dev.azure.com/{org} --name {proj}', checks=[
             JMESPathCheck('name', self.azure_devops_project),
         ]).get_output_in_json()
-        azure_devops_project_id = result['id']
+        self.azure_devops_project_id = result['id']
 
         # Create a new repository in Azure Devops
         self.cmd('repos create --organization https://dev.azure.com/{org} --project {proj} --name {repo}', checks=[
             JMESPathCheck('name', self.azure_devops_repository),
-        ]).get_output_in_json()
-        azure_devops_repository_id = result['id']
+        ])
 
         # Change directory to sample functionapp
-        old_directory = os.getcwd()
         os.chdir(TEST_DIR)
 
     def _tearDownDevopsEnvironment(self):
         # Change directory back
-        os.chdir(old_directory)
+        os.chdir(CURR_DIR)
 
         # Remove Azure Devops project
         self.cmd('devops project delete --organization https://dev.azure.com/{org} --id {id} --yes'.format(
             org=self.azure_devops_organization,
-            id=azure_devops_project_id
+            id=self.azure_devops_project_id
         ))
