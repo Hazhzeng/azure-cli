@@ -7,7 +7,7 @@ import os
 import time
 import re
 import json
-from knack.prompting import prompt_choice_list, prompt_y_n, prompt
+from knack.prompting import prompt_choice_list, prompt_y_n, prompt, prompt_pass
 from knack.util import CLIError
 from azure_functions_devops_build.constants import (LINUX_CONSUMPTION, LINUX_DEDICATED, WINDOWS,
                                                     PYTHON, NODE, DOTNET, JAVA)
@@ -32,6 +32,8 @@ def str2bool(v):
         retval = None
     return retval
 
+SUPPORTED_SCENARIOS = ['AZURE_DEVOPS', 'GITHUB_INTEGRATION']
+SUPPORTED_SOURCECODE_LOCATIONS = ['Current Directory', 'Github']
 
 class AzureDevopsBuildInteractive(object):
     """Implement the basic user flow for a new user wanting to do an Azure DevOps build for Azure Functions
@@ -42,7 +44,7 @@ class AzureDevopsBuildInteractive(object):
     """
 
     def __init__(self, cmd, logger, functionapp_name, organization_name, project_name, repository_name,
-                 overwrite_yaml, allow_force_push, use_local_settings):
+                 overwrite_yaml, allow_force_push, use_local_settings, github_pat, github_repository):
         self.adbp = AzureDevopsBuildProvider(cmd.cli_ctx)
         self.cmd = cmd
         self.logger = logger
@@ -55,6 +57,11 @@ class AzureDevopsBuildInteractive(object):
         self.organization_name = organization_name
         self.project_name = project_name
         self.repository_name = repository_name
+
+        self.github_pat = github_pat
+        self.github_repository = github_repository
+        self.github_service_endpoint_name = None
+
         self.repository_remote_name = None
         self.service_endpoint_name = None
         self.build_definition_name = None
@@ -67,6 +74,7 @@ class AzureDevopsBuildInteractive(object):
         self.build = None
         self.release = None
         # These are used to tell if we made new objects
+        self.scenario = None  # see SUPPORTED_SCENARIOS
         self.created_organization = False
         self.created_project = False
         self.overwrite_yaml = str2bool(overwrite_yaml)
@@ -75,27 +83,36 @@ class AzureDevopsBuildInteractive(object):
 
     def interactive_azure_devops_build(self):
         """Main interactive flow which is the only function that should be used outside of this
-        class (the rest are helpers)
-        """
-        self.pre_checks()
+        class (the rest are helpers)"""
+
+        scenario = self.check_scenario()
+        if scenario == 'AZURE_DEVOPS':
+            self.pre_checks_azure_devops()
+
         self.process_functionapp()
         self.process_organization()
         self.process_project()
 
         # Generate Azure pipenline build yaml
-        self.process_yaml()
+        if scenario == 'AZURE_DEVOPS':
+            self.process_yaml()
 
         # Allow user to choose the uploading destination
-        self.process_local_repository()
-        self.process_remote_repository()
+        if scenario == 'AZURE_DEVOPS':
+            self.process_local_repository()
+            self.process_remote_repository()
+        if scenario == 'GITHUB_INTEGRATION':
+            self.process_github_personal_access_token()
+            self.process_github_repository()
+            self.process_github_service_endpoint()
 
         # Set up the default names for the rest of the things we need to create
-        self.process_service_endpoint()
+        self.process_functionapp_service_endpoint()
         self.process_extensions()
 
         # Start build process and release artifacts to azure functions app
-        self.process_build_and_release_definition_name()
-        self.process_build()
+        self.process_build_and_release_definition_name(scenario)
+        self.process_build(scenario)
         self.process_release()
 
         # Advise user to reuse the pipeline build and release by pushing to remote
@@ -117,7 +134,20 @@ class AzureDevopsBuildInteractive(object):
 
         return return_dict
 
-    def pre_checks(self):
+    def check_scenario(self):
+        if self.repository_name:
+            self.scenario = 'AZURE_DEVOPS'
+        elif self.github_pat or self.github_repository:
+            self.scenario = 'GITHUB'
+        else:
+            choice_index = prompt_choice_list(
+                'Please choose Azure function source code location: ',
+                SUPPORTED_SOURCECODE_LOCATIONS
+            )
+            self.scenario = SUPPORTED_SCENARIOS[choice_index]
+        return self.scenario
+
+    def pre_checks_azure_devops(self):
         if not os.path.exists('host.json'):
             raise CLIError("There is no host.json in the current directory.{ls}"
                            "Functionapps must contain a host.json in their root.".format(ls=os.linesep))
@@ -267,11 +297,49 @@ class AzureDevopsBuildInteractive(object):
 
         self.logger.warning("Local branches has been pushed to {url}".format(url=remote_url))
 
-    def process_build_and_release_definition_name(self):
-        self.build_definition_name = self.repository_remote_name.replace("_azuredevops_", "_build_", 1)[0:256]
-        self.release_definition_name = self.repository_remote_name.replace("_azuredevops_", "_release_", 1)[0:256]
+    def process_github_personal_access_token(self):
+        while not self.github_pat or not self.adbp.check_github_pat(self.github_pat):
+            self.github_pat = prompt_pass(
+                msg="Github Personal Access Token: ",
+                help_string="To create a personal token in Github, "
+                            "please follow the steps in https://help.github.com/en/articles/creating-a-personal-access-token-for-the-command-line"
+            )
+        print("Successfully validate Github personal access token.")
 
-    def process_service_endpoint(self):
+    def process_github_repository(self):
+        while not self.github_repository or not self.adbp.check_github_repository(self.github_pat, self.github_repository):
+            self.github_repository = prompt(
+                msg="Github Repository (e.g. Azure/azure-cli): ",
+                help_string="You should enter the fullname of a Github repository, "
+                            "usually, it is formatted in {organization}/{repository} or {username}/{repository}"
+            )
+        print("Successfully validate Github repository existence.")
+
+    def process_build_and_release_definition_nameprocess_build_and_release_definition_name(self, scenario):
+        if scenario == 'AZURE_DEVOPS':
+            self.build_definition_name = self.repository_remote_name.replace("_azuredevops_", "_build_", 1)[0:256]
+            self.release_definition_name = self.repository_remote_name.replace("_azuredevops_", "_release_", 1)[0:256]
+        if scenario == 'GITHUB_INTEGRATION':
+            self.build_definition_name = "_build_github_" + self.github_repository.replace("/", "_", 1)[0:256]
+            self.release_definition_name = "_release_github_" + self.github_repository.replace("/", "_", 1)[0:256]
+
+    def process_github_service_endpoint(self):
+        service_endpoints = self.adbp.get_github_service_endpoints(
+            self.organization_name, self.project_name, self.github_repository
+        )
+
+        if not service_endpoints:
+            service_endpoint = self.adbp.create_github_service_endpoint(
+                self.organization_name, self.project_name, self.github_repository, self.github_pat    
+            )
+        else:
+            service_endpoint = service_endpoints[0]
+            self.logger.warning("Detected Github service endpoint {name}".format(name=service_endpoint.name))
+
+        self.github_service_endpoint_name = service_endpoint.name
+
+
+    def process_functionapp_service_endpoint(self):
         service_endpoints = self.adbp.get_service_endpoints(
             self.organization_name, self.project_name, self.repository_name
         )
@@ -299,7 +367,7 @@ class AzureDevopsBuildInteractive(object):
             self.adbp.create_extension(self.organization_name, 'AzureAppServiceSetAppSettings', 'hboelman')
             self.adbp.create_extension(self.organization_name, 'PascalNaber-Xpirit-CreateSasToken', 'pascalnaber')
 
-    def process_build(self):
+    def process_build(self, scenario):
         # need to check if the build definition already exists
         build_definitions = self.adbp.list_build_definitions(self.organization_name, self.project_name)
         build_definition_match = [
@@ -308,9 +376,10 @@ class AzureDevopsBuildInteractive(object):
         ]
 
         if not build_definition_match:
+            is_github_build = scenario == 'GITHUB_INTEGRATION'
             self.adbp.create_build_definition(self.organization_name, self.project_name,
                                               self.repository_name, self.build_definition_name,
-                                              self.build_pool_name)
+                                              self.build_pool_name, is_github_build)
         else:
             self.logger.warning("Detected build definition {name}".format(name=self.build_definition_name))
 
@@ -549,7 +618,6 @@ class AzureDevopsBuildInteractive(object):
     def _get_build_by_id(self, organization_name, project_name, build_id):
         builds = self.adbp.list_build_objects(organization_name, project_name)
         return next((build for build in builds if build.id == build_id))
-
 
 class CmdSelectors(object):
 
