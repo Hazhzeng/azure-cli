@@ -15,7 +15,8 @@ from azure_functions_devops_build.exceptions import (
     GitOperationException,
     RoleAssignmentException,
     LanguageNotSupportException,
-    ReleaseErrorException
+    ReleaseErrorException,
+    GithubContentNotFound
 )
 from .azure_devops_build_provider import AzureDevopsBuildProvider
 from .custom import list_function_app, show_webapp, get_app_settings
@@ -87,52 +88,70 @@ class AzureDevopsBuildInteractive(object):
 
         scenario = self.check_scenario()
         if scenario == 'AZURE_DEVOPS':
-            self.pre_checks_azure_devops()
+            return self.azure_devops_flow()
+        elif scenario == 'GITHUB_INTEGRATION':
+            return self.github_flow()
+        raise CLIError('Unknown scenario')
 
+    def azure_devops_flow(self):
+        self.pre_checks_azure_devops()
+        self.process_functionapp('AZURE_DEVOPS')
+        self.process_organization()
+        self.process_project()
+        self.process_yaml()
+        self.process_local_repository()
+        self.process_remote_repository()
+        self.process_functionapp_service_endpoint()
+        self.process_extensions()
+        self.process_build_and_release_definition_name('AZURE_DEVOPS')
+        self.process_build('AZURE_DEVOPS')
+        self.process_release()
+        self.logger.warning("To trigger a function build again, please use")
+        self.logger.warning("'git push {remote} master'".format(remote=self.repository_remote_name))
+        return {
+            'source_location': 'local',
+            'functionapp_name': self.functionapp_name,
+            'storage_name': self.storage_name,
+            'resource_group_name': self.resource_group_name,
+            'functionapp_language': self.functionapp_language,
+            'functionapp_type': self.functionapp_type,
+            'organization_name': self.organization_name,
+            'project_name': self.project_name,
+            'repository_name': self.repository_name,
+            'service_endpoint_name': self.service_endpoint_name,
+            'build_definition_name': self.build_definition_name,
+            'release_definition_name': self.release_definition_name
+        }
+
+    def github_flow(self):
+        self.process_github_personal_access_token()
+        self.process_github_repository('GITHUB_INTEGRATION')
         self.process_functionapp()
         self.process_organization()
         self.process_project()
-
-        # Generate Azure pipenline build yaml
-        if scenario == 'AZURE_DEVOPS':
-            self.process_yaml()
-
-        # Allow user to choose the uploading destination
-        if scenario == 'AZURE_DEVOPS':
-            self.process_local_repository()
-            self.process_remote_repository()
-        if scenario == 'GITHUB_INTEGRATION':
-            self.process_github_personal_access_token()
-            self.process_github_repository()
-            self.process_github_service_endpoint()
-
-        # Set up the default names for the rest of the things we need to create
         self.process_functionapp_service_endpoint()
+        self.process_github_service_endpoint()
         self.process_extensions()
-
-        # Start build process and release artifacts to azure functions app
-        self.process_build_and_release_definition_name(scenario)
-        self.process_build(scenario)
+        self.process_build_and_release_definition_name('GITHUB_INTEGRATION')
+        self.process_build('GITHUB_INTEGRATION')
         self.process_release()
-
-        # Advise user to reuse the pipeline build and release by pushing to remote
-        self.logger.warning("To trigger a function build again, please use")
-        self.logger.warning("'git push {remote} master'".format(remote=self.repository_remote_name))
-
-        return_dict = {}
-        return_dict['functionapp_name'] = self.functionapp_name
-        return_dict['storage_name'] = self.storage_name
-        return_dict['resource_group_name'] = self.resource_group_name
-        return_dict['functionapp_language'] = self.functionapp_language
-        return_dict['functionapp_type'] = self.functionapp_type
-        return_dict['organization_name'] = self.organization_name
-        return_dict['project_name'] = self.project_name
-        return_dict['repository_name'] = self.repository_name
-        return_dict['service_endpoint_name'] = self.service_endpoint_name
-        return_dict['build_definition_name'] = self.build_definition_name
-        return_dict['release_definition_name'] = self.release_definition_name
-
-        return return_dict
+        self.logger.warning("Setup continuous integration between {github_repo} and Azure DevOps pipelines".format(
+            github_repo = self.github_repository    
+        ))
+        return {
+            'source_location': 'Github',
+            'functionapp_name': self.functionapp_name,
+            'storage_name': self.storage_name,
+            'resource_group_name': self.resource_group_name,
+            'functionapp_language': self.functionapp_language,
+            'functionapp_type': self.functionapp_type,
+            'organization_name': self.organization_name,
+            'project_name': self.project_name,
+            'repository_name': self.github_repository,
+            'service_endpoint_name': self.service_endpoint_name,
+            'build_definition_name': self.build_definition_name,
+            'release_definition_name': self.release_definition_name
+        }
 
     def check_scenario(self):
         if self.repository_name:
@@ -155,7 +174,7 @@ class AzureDevopsBuildInteractive(object):
         if not self.adbp.check_git():
             raise CLIError("The program requires git source control to operate, please install git.")
 
-    def process_functionapp(self):
+    def process_functionapp(self, scenario):
         """Helper to retrieve information about a functionapp"""
         if self.functionapp_name is None:
             functionapp = self._select_functionapp()
@@ -165,13 +184,15 @@ class AzureDevopsBuildInteractive(object):
             functionapp = self.cmd_selector.cmd_functionapp(self.functionapp_name)
 
         kinds = show_webapp(self.cmd, functionapp.resource_group, functionapp.name).kind.split(',')
+
+        # Get functionapp settings in Azure
         app_settings = get_app_settings(self.cmd, functionapp.resource_group, functionapp.name)
 
         self.resource_group_name = functionapp.resource_group
         self.functionapp_type = self._find_type(kinds)
 
         try:
-            self.functionapp_language, self.storage_name = self._find_language_and_storage_name(app_settings)
+            self.functionapp_language, self.storage_name = self._find_language_and_storage_name(app_settings, scenario)
         except LanguageNotSupportException as lnse:
             raise CLIError("Sorry, currently we do not support {language}.".format(language=lnse.message))
 
@@ -507,36 +528,51 @@ class AzureDevopsBuildInteractive(object):
         # are deploying to
         with open('local.settings.json') as f:
             settings = json.load(f)
-        try:
-            local_language = settings['Values']['FUNCTIONS_WORKER_RUNTIME']
-        except KeyError:
-            raise CLIError("The app 'FUNCTIONS_WORKER_RUNTIME' setting is not set in the local.settings.json file")
-        if local_language == '':
+
+        local_language = github_file_content.get('Values', {}).get('FUNCTIONS_WORKER_RUNTIME')
+        if not local_language:
             raise CLIError("The app 'FUNCTIONS_WORKER_RUNTIME' setting is not set in the local.settings.json file")
         return local_language
 
-    def _find_language_and_storage_name(self, app_settings):
-        local_language = self._find_local_language()
+    def _find_github_repository_runtime_language(self):
+        try:
+            github_file_content = get_github_content(self.github_pat, self.github_repository, "local.settings.json")
+        except GithubContentNotFound:
+            raise CLIError("Functionapp configuration file local.settings.json cannot be found.{ls}"
+                           "Please ensure you have local.settings.json in your Github repository root{ls}"
+                           "and you have read permission to the repository".format(ls=os.linesep))
+
+        runtime_language = github_file_content.get('Values', {}).get('FUNCTIONS_WORKER_RUNTIME')
+        if not runtime_language:
+            raise CLIError("The app 'FUNCTIONS_WORKER_RUNTIME' setting is not set in the local.settings.json file")
+        return runtime_language
+
+    def _find_language_and_storage_name(self, app_settings, scenario):
+        if scenario == "AZURE_DEVOPS":
+            code_language = self._find_local_language()
+        elif scenario == "GITHUB_INTEGRATION":
+            code_language = self._find_github_repository_language()
+
         for app_setting in app_settings:
             if app_setting['name'] == "FUNCTIONS_WORKER_RUNTIME":
-                language_str = app_setting['value']
-                if language_str != local_language:
+                functionapp_language = app_setting['value']
+                if functionapp_language != code_language:
                     # We should not deploy if the local runtime language is not the same as that of their functionapp
-                    raise CLIError("The local language you are using ({local}) does not match the language of your function app ({functionapps}){ls}"
+                    raise CLIError("The local language you are using ({code}) does not match the language of your function app ({functionapps}){ls}"
                                    "Please look at the FUNCTIONS_WORKER_RUNTIME both in your local.settings.json"
                                    " and in your application settings on your function app in Azure.".format(
-                                       local=local_language, functionapps=language_str, ls=os.linesep))
-                if language_str == "python":
+                                       code=code_language, functionapps=functionapp_language, ls=os.linesep))
+                if functionapp_language == "python":
                     self.logger.info("detected that language used by functionapp is python")
                     language = PYTHON
-                elif language_str == "node":
+                elif functionapp_language == "node":
                     self.logger.info("detected that language used by functionapp is node")
                     language = NODE
-                elif language_str == "dotnet":
+                elif functionapp_language == "dotnet":
                     self.logger.info("detected that language used by functionapp is .net")
                     language = DOTNET
                 else:
-                    raise LanguageNotSupportException(language_str)
+                    raise LanguageNotSupportException(functionapp_language)
             if app_setting['name'] == "AzureWebJobsStorage":
                 storage_name = app_setting['value'].split(';')[1].split('=')[1]
                 self.logger.info("detected that storage used by the functionapp is %s", storage_name)

@@ -266,6 +266,10 @@ class AzureDevopsBuildProvider(object):  # pylint: disable=too-many-public-metho
         github_user_manager = GithubUserManager()
         return github_user_manager.check_github_pat(github_pat)
 
-    def check_github_repository(self, github_pat, github_repository_fullname):
-        github_repository_manager = GithubRepositoryManager(pat=github_pat)
-        return github_repository_manager.check_github_repository(github_repository_fullname)
+    def check_github_repository(self, pat, repository_fullname):
+        github_repository_manager = GithubRepositoryManager(pat=pat)
+        return github_repository_manager.check_github_repository(repository_fullname)
+
+    def get_github_content(self, pat, repository_fullname, filepath):
+        github_repository_manager = GithubRepositoryManager(pat=pat)
+        return github_repository_manager.get_content(repository_fullname, filepath)
