@@ -181,11 +181,12 @@ class AzureDevopsBuildInteractive(object):
 
         local_runtime_language = self._find_local_repository_runtime_language()
         if local_runtime_language != self.functionapp_language:
-            raise CLIError("The local language you are using ({setting}) does not match the language of your function app ({functionapps}){ls}"
+            raise CLIError("The local language ({setting}) does not match your function app runtime language ({functionapp}).{ls}"
                            "Please look at the FUNCTIONS_WORKER_RUNTIME both in your local.settings.json "
-                           " and in your application settings on your functionapp in Azure.".format(
+                           "and in your application settings on your functionapp in Azure.".format(
                                setting=local_runtime_language,
-                               functionapps=self.functionapp_language,
+                               functionapp=self.functionapp_language,
+                               ls=os.linesep,
                            ))
 
     def pre_checks_github(self):
@@ -199,11 +200,12 @@ class AzureDevopsBuildInteractive(object):
 
         github_runtime_language = self._find_github_repository_runtime_language()
         if github_runtime_language is not None and github_runtime_language != self.functionapp_language:
-            raise CLIError("The local language you are using ({setting}) does not match the language of your function app ({functionapps}){ls}"
-                           "Please look at the FUNCTIONS_WORKER_RUNTIME both in your local.settings.json "
+            raise CLIError("The repository language ({setting}) does not match your function app runtime language ({functionapp}).{ls}"
+                           "Please look at the FUNCTIONS_WORKER_RUNTIME both in your local.settings.json"
                            " and in your application settings on your functionapp in Azure.".format(
                                setting=github_runtime_language,
-                               functionapps=self.functionapp_language,
+                               functionapp=self.functionapp_language,
+                               ls=os.linesep,
                            ))
 
     def process_functionapp(self):
@@ -311,6 +313,8 @@ class AzureDevopsBuildInteractive(object):
                 )
             except LanguageNotSupportException as lnse:
                 raise CLIError("Sorry, currently we do not support {language}.".format(language=lnse.message))
+            except GithubContentNotFound:
+                raise CLIError("Sorry, your repository does not exist or you do not have sufficient permission to commit to the repository.")
             except GithubUnauthorizedError:
                 raise CLIError("Sorry, you do not have sufficient permission to commit azure-pipelines.yml to your Github repository.")
 
@@ -327,8 +331,20 @@ class AzureDevopsBuildInteractive(object):
                 )
             except LanguageNotSupportException as lnse:
                 raise CLIError("Sorry, currently we do not support {language}.".format(language=lnse.message))
+            except GithubContentNotFound:
+                raise CLIError("Sorry, the repository does not exist or you do not have sufficient permission to contribute to it.{ls}{ls}"
+                               "You may visit https://docs.microsoft.com/en-us/azure/devops/pipelines/repos/"
+                               "github?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication"
+                               " for more information.".format(
+                                   ls=os.linesep
+                               ))
             except GithubUnauthorizedError:
-                raise CLIError("Sorry, you do not have sufficient permission to overwrite azure-pipelines.yml in your Github repository.")
+                raise CLIError("Sorry, you do not have sufficient permission to overwrite azure-pipelines.yml in your Github repository.{ls}{ls}"
+                               "You may visit https://docs.microsoft.com/en-us/azure/devops/pipelines/repos/"
+                               "github?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication"
+                               " for more information.".format(
+                                   ls=os.linesep
+                               ))
 
     def process_local_repository(self):
         has_local_git_repository = self.adbp.check_git_local_repository()
@@ -393,18 +409,24 @@ class AzureDevopsBuildInteractive(object):
     def process_github_personal_access_token(self):
         if not self.github_pat:
             self.logger.warning("If you need to create a Github Personal Access Token, please follow the following steps:")
-            self.logger.warning("https://help.github.com/en/articles/creating-a-personal-access-token-for-the-command-line")
+            self.logger.warning("https://help.github.com/en/articles/"
+                                "creating-a-personal-access-token-for-the-command-line{ls}{ls}".format(
+                                    ls=os.linesep
+                                ))
             self.logger.warning("The required Personal Access Token permission can be found here:")
-            self.logger.warning("https://docs.microsoft.com/en-us/azure/devops/pipelines/repos/github?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication")
+            self.logger.warning("https://docs.microsoft.com/en-us/azure/devops/pipelines/repos/github"
+                                "?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication{ls}{ls}".format(
+                                    ls=os.linesep
+                                ))
 
         while not self.github_pat or not self.adbp.check_github_pat(self.github_pat):
             self.github_pat = prompt(msg="Github Personal Access Token: ")
-        print("Successfully validate Github personal access token.")
+        self.logger.warning("Successfully validate Github personal access token.")
 
     def process_github_repository(self):
         while not self.github_repository or not self.adbp.check_github_repository(self.github_pat, self.github_repository):
             self.github_repository = prompt(msg="Github Repository (e.g. Azure/azure-cli): ")
-        print("Successfully validate Github repository existence.")
+        self.logger.warning("Successfully validate Github repository.")
 
     def process_build_and_release_definition_name(self, scenario):
         if scenario == 'AZURE_DEVOPS':
@@ -478,12 +500,19 @@ class AzureDevopsBuildInteractive(object):
                                                              self.github_repository, self.build_definition_name,
                                                              self.build_pool_name)
                 except GithubIntegrationRequestError as gire:
-                    raise CLIError("{error}{ls}"
-                                   "Please ensure your Github personal access token has sufficient permissions.{ls}"
+                    raise CLIError("{error}{ls}{ls}"
+                                   "Please ensure your Github personal access token has sufficient permissions.{ls}{ls}"
                                    "You may visit https://docs.microsoft.com/en-us/azure/devops/pipelines/repos/"
                                    "github?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication"
-                                   " for more information".format(
+                                   " for more information.".format(
                                        error=gire.message, ls=os.linesep
+                                   ))
+                except GithubContentNotFound:
+                    raise CLIError("Failed to create a webhook for your Github repository or your repository cannot be accessed.{ls}{ls}"
+                                   "You may visit https://docs.microsoft.com/en-us/azure/devops/pipelines/repos/"
+                                   "github?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication"
+                                   " for more information.".format(
+                                       ls=os.linesep
                                    ))
         else:
             self.logger.warning("Detected build definition {name}".format(name=self.build_definition_name))
@@ -617,7 +646,7 @@ class AzureDevopsBuildInteractive(object):
         if not runtime_language:
             raise CLIError("The 'FUNCTIONS_WORKER_RUNTIME' setting is not defined in the local.settings.json file")
 
-        if SUPPORTED_LANGUAGES.get(runtime_language):
+        if SUPPORTED_LANGUAGES.get(runtime_language) is not None:
             return runtime_language
         else:
             raise LanguageNotSupportException(runtime_language)
@@ -627,14 +656,14 @@ class AzureDevopsBuildInteractive(object):
             github_file_content = self.adbp.get_github_content(self.github_pat, self.github_repository, "local.settings.json")
         except GithubContentNotFound:
             self.logger.warning("The local.settings.json is not commited to Github repository {repo}".format(repo=self.github_repository))
-            self.logger.warning("Functionapp worker runtime language check is disabled.")
+            self.logger.warning("Set azure-pipeline.yml language to: {language}".format(language=self.functionapp_language))
             return None
 
         runtime_language = github_file_content.get('Values', {}).get('FUNCTIONS_WORKER_RUNTIME')
         if not runtime_language:
             raise CLIError("The 'FUNCTIONS_WORKER_RUNTIME' setting is not defined in the local.settings.json file")
 
-        if SUPPORTED_LANGUAGES.get(runtime_language):
+        if SUPPORTED_LANGUAGES.get(runtime_language) is not None:
             return runtime_language
         else:
             raise LanguageNotSupportException(runtime_language)
@@ -646,7 +675,7 @@ class AzureDevopsBuildInteractive(object):
 
         if functions_worker_runtime:
             functionapp_language = functions_worker_runtime[0]
-            if SUPPORTED_LANGUAGES.get(functionapp_language):
+            if SUPPORTED_LANGUAGES.get(functionapp_language) is not None:
                 return SUPPORTED_LANGUAGES[functionapp_language]
             else:
                 raise LanguageNotSupportException(functionapp_language)
