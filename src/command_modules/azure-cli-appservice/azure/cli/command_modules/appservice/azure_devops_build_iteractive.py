@@ -410,12 +410,12 @@ class AzureDevopsBuildInteractive(object):
         if not self.github_pat:
             self.logger.warning("If you need to create a Github Personal Access Token, please follow the following steps:")
             self.logger.warning("https://help.github.com/en/articles/"
-                                "creating-a-personal-access-token-for-the-command-line{ls}{ls}".format(
+                                "creating-a-personal-access-token-for-the-command-line{ls}".format(
                                     ls=os.linesep
                                 ))
             self.logger.warning("The required Personal Access Token permission can be found here:")
             self.logger.warning("https://docs.microsoft.com/en-us/azure/devops/pipelines/repos/github"
-                                "?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication{ls}{ls}".format(
+                                "?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication{ls}".format(
                                     ls=os.linesep
                                 ))
 
