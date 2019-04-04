@@ -31,7 +31,7 @@ CLASSIFIERS = [
 
 DEPENDENCIES = [
     'azure-cli-core',
-    # 'azure-functions-devops-build==0.0.14',
+    'azure-functions-devops-build==0.0.14',
     'azure-mgmt-web==0.40.0',
     'azure-mgmt-storage==3.1.1',
     'azure-mgmt-containerregistry==2.7.0',
@@ -55,9 +55,6 @@ setup(
     name='azure-cli-appservice',
     version=VERSION,
     description='Microsoft Azure Command-Line Tools AppService Command Module',
-    dependency_links=[
-        'http://github.com/Hazhzeng/azure-functions-devops-build/snapshot-2019-04-04#egg=azure-functions-devops-build-0.0.15preview'
-    ],
     long_description=README + '\n\n' + HISTORY,
     license='MIT',
     author='Microsoft Corporation',
