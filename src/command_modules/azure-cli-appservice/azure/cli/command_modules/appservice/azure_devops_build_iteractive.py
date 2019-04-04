@@ -332,19 +332,9 @@ class AzureDevopsBuildInteractive(object):
             except LanguageNotSupportException as lnse:
                 raise CLIError("Sorry, currently we do not support {language}.".format(language=lnse.message))
             except GithubContentNotFound:
-                raise CLIError("Sorry, the repository does not exist or you do not have sufficient permission to contribute to it.{ls}{ls}"
-                               "You may visit https://docs.microsoft.com/en-us/azure/devops/pipelines/repos/"
-                               "github?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication"
-                               " for more information.".format(
-                                   ls=os.linesep
-                               ))
+                raise CLIError("Sorry, the repository does not exist or you do not have sufficient permission to contribute to it.")
             except GithubUnauthorizedError:
-                raise CLIError("Sorry, you do not have sufficient permission to overwrite azure-pipelines.yml in your Github repository.{ls}{ls}"
-                               "You may visit https://docs.microsoft.com/en-us/azure/devops/pipelines/repos/"
-                               "github?view=azure-devops#repository-permissions-for-personal-access-token-pat-authentication"
-                               " for more information.".format(
-                                   ls=os.linesep
-                               ))
+                raise CLIError("Sorry, you do not have sufficient permission to overwrite azure-pipelines.yml in your Github repository.")
 
     def process_local_repository(self):
         has_local_git_repository = self.adbp.check_git_local_repository()
