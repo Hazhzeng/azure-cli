@@ -6,6 +6,7 @@
 import os
 import time
 import json
+import logging
 from knack.prompting import prompt_choice_list, prompt_y_n, prompt
 from knack.util import CLIError
 from azure_functions_devops_build.constants import (
@@ -41,7 +42,7 @@ SUPPORTED_LANGUAGES = {
     'dotnet': DOTNET,
     'powershell': POWERSHELL,
 }
-LOG_STREAMING_FREQUENCY = 1 # sec
+BUILD_QUERY_FREQUENCY = 5 # sec
 RELEASE_COMPOSITION_DELAY = 1 # sec
 
 class AzureDevopsBuildInteractive(object):
@@ -477,7 +478,7 @@ class AzureDevopsBuildInteractive(object):
                                url=remote_url, ls=os.linesep
                            ))
 
-        self.logger.warning("Local branches has been pushed to {url}".format(url=remote_url))
+        self.logger.warning("Local branches have been pushed to {url}".format(url=remote_url))
 
     def process_github_personal_access_token(self):
         if not self.github_pat:
@@ -623,21 +624,22 @@ class AzureDevopsBuildInteractive(object):
         prev_log_status = None
 
         while build is None or build.result is None:
-            time.sleep(LOG_STREAMING_FREQUENCY)
+            time.sleep(BUILD_QUERY_FREQUENCY)
             build = self._get_build_by_id(self.organization_name, self.project_name, self.build.id)
 
             # Log streaming
-            curr_log_status = self.adbp.get_build_logs_status(self.organization_name, self.project_name, self.build.id)
-            log_content = self.adbp.get_build_logs_content_from_statuses(
-                organization_name=self.organization_name,
-                project_name=self.project_name,
-                build_id=self.build.id,
-                prev_log=prev_log_status,
-                curr_log=curr_log_status
-            )
-            if log_content:
-                self.logger.info(log_content)
-            prev_log_status = curr_log_status
+            if self.logger.isEnabledFor(logging.INFO):
+                curr_log_status = self.adbp.get_build_logs_status(self.organization_name, self.project_name, self.build.id)
+                log_content = self.adbp.get_build_logs_content_from_statuses(
+                    organization_name=self.organization_name,
+                    project_name=self.project_name,
+                    build_id=self.build.id,
+                    prev_log=prev_log_status,
+                    curr_log=curr_log_status
+                )
+                if log_content:
+                    self.logger.info(log_content)
+                prev_log_status = curr_log_status
 
         if build.result == 'failed':
             url = "https://dev.azure.com/{org}/{proj}/_build/results?buildId={build_id}".format(
