@@ -41,7 +41,8 @@ SUPPORTED_LANGUAGES = {
     'dotnet': DOTNET,
     'powershell': POWERSHELL,
 }
-
+LOG_STREAMING_FREQUENCY = 1 # sec
+RELEASE_COMPOSITION_DELAY = 1 # sec
 
 class AzureDevopsBuildInteractive(object):
     """Implement the basic user flow for a new user wanting to do an Azure DevOps build for Azure Functions
@@ -80,7 +81,6 @@ class AzureDevopsBuildInteractive(object):
 
         self.settings = []
         self.build = None
-        self.release = None
         # These are used to tell if we made new objects
         self.scenario = None  # see SUPPORTED_SCENARIOS
         self.created_organization = False
@@ -277,6 +277,12 @@ class AzureDevopsBuildInteractive(object):
                 self._create_project()
         else:
             self.cmd_selector.cmd_project(self.organization_name, self.project_name)
+
+        self.logger.warning("To view your Azure DevOps project, "
+                            "please visit https://dev.azure.com/{org}/{proj}".format(
+                            org=self.organization_name,
+                            proj=self.project_name
+                           ))
 
     def process_yaml_local(self):
         """Helper to create the local azure-pipelines.yml file"""
@@ -527,6 +533,7 @@ class AzureDevopsBuildInteractive(object):
         # If there is no matching service endpoint, we need to create a new one
         if not service_endpoints:
             try:
+                self.logger.warning("Creating a service principle for function app release. Please wait.")
                 service_endpoint = self.adbp.create_service_endpoint(
                     self.organization_name, self.project_name, repository
                 )
@@ -612,12 +619,14 @@ class AzureDevopsBuildInteractive(object):
         self.logger.warning("To follow the build process go to {url}".format(url=url))
 
     def wait_for_build(self):
-        counter = 0
         build = None
         prev_log_status = None
+
         while build is None or build.result is None:
-            time.sleep(5)
+            time.sleep(LOG_STREAMING_FREQUENCY)
             build = self._get_build_by_id(self.organization_name, self.project_name, self.build.id)
+
+            # Log streaming
             curr_log_status = self.adbp.get_build_logs_status(self.organization_name, self.project_name, self.build.id)
             log_content = self.adbp.get_build_logs_content_from_statuses(
                 organization_name=self.organization_name,
@@ -626,7 +635,8 @@ class AzureDevopsBuildInteractive(object):
                 prev_log=prev_log_status,
                 curr_log=curr_log_status
             )
-            self.logger.warning(log_content)
+            if log_content:
+                self.logger.info(log_content)
             prev_log_status = curr_log_status
 
         if build.result == 'failed':
@@ -640,7 +650,7 @@ class AzureDevopsBuildInteractive(object):
                                url=url, ls=os.linesep
                            ))
         if build.result == 'succeeded':
-            self.logger.warning("Your build has completed. Composing a release definition...")
+            self.logger.warning("Your build has completed.")
 
     def process_release(self):
         # need to check if the release definition already exists
@@ -651,6 +661,7 @@ class AzureDevopsBuildInteractive(object):
         ]
 
         if not release_definition_match:
+            self.logger.warning("Composing a release definition...")
             self.adbp.create_release_definition(self.organization_name, self.project_name,
                                                 self.build_definition_name, self.artifact_name,
                                                 self.release_pool_name, self.service_endpoint_name,
@@ -661,31 +672,29 @@ class AzureDevopsBuildInteractive(object):
             self.logger.warning("Detected a release definition already exists: {name}".format(
                                 name=self.release_definition_name))
 
-        # The build artifact takes some time to propagate
-        self.logger.warning("Prepare to release the artifact...")
-        time.sleep(5)
 
-        try:
-            release = self.adbp.create_release(self.organization_name, self.project_name, self.release_definition_name)
-        except ReleaseErrorException:
-            url = "https://dev.azure.com/{org}/{proj}/_release".format(
-                org=self.organization_name,
-                proj=self.project_name
-            )
-            raise CLIError("Sorry, your release has failed in Azure Devops.{ls}"
-                           "To view details on why your release has failed please visit {url}".format(
-                               url=url, ls=os.linesep
-                           ))
+        # Check if a release is automatically triggered. If not, create a new release.
+        time.sleep(RELEASE_COMPOSITION_DELAY)
+        release = self.adbp.get_latest_release(self.organization_name, self.project_name, self.release_definition_name)
+        if release is None:
+            try:
+                release = self.adbp.create_release(self.organization_name, self.project_name, self.release_definition_name)
+            except ReleaseErrorException:
+                raise CLIError("Sorry, your release has failed in Azure Devops.{ls}"
+                               "To view details on why your release has failed please visit "
+                               "https://dev.azure.com/{org}/{proj}/_release".format(
+                                  ls=os.linesep, org=self.organization_name, proj=self.project_name
+                              ))
 
-        url = (
-            "https://dev.azure.com/{org}/{proj}/_releaseProgress?_a"
-            "=release-environment-logs&releaseId={release_id}".format(
-                org=self.organization_name,
-                proj=self.project_name,
-                release_id=release.id
-            ))
-        self.logger.warning("To follow the release process go to {url}".format(url=url))
-        self.release = release
+        self.logger.warning("To follow the release process go to "
+                            "https://dev.azure.com/{org}/{proj}/_releaseProgress?"
+                            "_a=release-environment-logs&releaseId={release_id}".format(
+                                org=self.organization_name,
+                                proj=self.project_name,
+                                release_id=release.id
+                            ))
+        return
+
 
     def _check_if_force_push_required(self, remote_url, remote_branches):
         force_push_required = False
@@ -854,8 +863,7 @@ class AzureDevopsBuildInteractive(object):
                 self.logger.warning("Note: any name must be globally unique")
             else:
                 break
-        url = "https://dev.azure.com/" + new_organization.name + "/"
-        self.logger.info("Finished creating the new organization. Click the link to see your new organization: %s", url)
+
         self.organization_name = new_organization.name
 
     def _select_project(self):
@@ -879,8 +887,6 @@ class AzureDevopsBuildInteractive(object):
             project_name = prompt("Please enter the name of the new project: ")
             project = self.adbp.create_project(self.organization_name, project_name)
 
-        url = "https://dev.azure.com/" + self.organization_name + "/" + project.name + "/"
-        self.logger.info("Finished creating the new project. Click the link to see your new project: %s", url)
         self.project_name = project.name
         self.created_project = True
 

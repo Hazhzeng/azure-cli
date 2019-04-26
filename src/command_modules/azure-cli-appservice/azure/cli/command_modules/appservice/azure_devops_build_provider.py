@@ -338,14 +338,13 @@ class AzureDevopsBuildProvider(object):  # pylint: disable=too-many-public-metho
         )
         return release_manager.create_release(release_definition_name)
 
-    def list_releases(self, organization_name, project_name):
-        """List the releases of an azure devops project"""
+    def get_latest_release(self, organization_name, project_name, release_defintion_name):
         release_manager = ReleaseManager(
             organization_name=organization_name,
             project_name=project_name,
             creds=self._creds
         )
-        return release_manager.list_releases()
+        return release_manager.get_latest_release(release_defintion_name)
 
     def get_github_service_endpoints(self, organization_name, project_name, github_repository):
         service_endpoint_manager = GithubServiceEndpointManager(
