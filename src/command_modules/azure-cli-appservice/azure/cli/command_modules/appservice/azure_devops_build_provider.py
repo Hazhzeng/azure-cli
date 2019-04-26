@@ -290,12 +290,12 @@ class AzureDevopsBuildProvider(object):  # pylint: disable=too-many-public-metho
         return builder_manager.get_build_logs_status(build_id)
 
     def get_build_logs_content_from_statuses(self, organization_name, project_name, build_id, prev_log, curr_log):
-         builder_manager = BuilderManager(
+        builder_manager = BuilderManager(
             organization_name=organization_name,
             project_name=project_name,
             creds=self._creds
-         )
-         return builder_manager.get_build_logs_content_from_statuses(build_id, prev_log, curr_log)
+        )
+        return builder_manager.get_build_logs_content_from_statuses(build_id, prev_log, curr_log)
 
     def list_artifacts(self, organization_name, project_name, build_id):
         """List the azure devops artifacts from a build"""

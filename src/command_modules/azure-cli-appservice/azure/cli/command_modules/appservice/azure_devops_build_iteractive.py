@@ -42,8 +42,9 @@ SUPPORTED_LANGUAGES = {
     'dotnet': DOTNET,
     'powershell': POWERSHELL,
 }
-BUILD_QUERY_FREQUENCY = 5 # sec
-RELEASE_COMPOSITION_DELAY = 1 # sec
+BUILD_QUERY_FREQUENCY = 5  # sec
+RELEASE_COMPOSITION_DELAY = 1  # sec
+
 
 class AzureDevopsBuildInteractive(object):
     """Implement the basic user flow for a new user wanting to do an Azure DevOps build for Azure Functions
@@ -281,9 +282,9 @@ class AzureDevopsBuildInteractive(object):
 
         self.logger.warning("To view your Azure DevOps project, "
                             "please visit https://dev.azure.com/{org}/{proj}".format(
-                            org=self.organization_name,
-                            proj=self.project_name
-                           ))
+                                org=self.organization_name,
+                                proj=self.project_name
+                            ))
 
     def process_yaml_local(self):
         """Helper to create the local azure-pipelines.yml file"""
@@ -674,7 +675,6 @@ class AzureDevopsBuildInteractive(object):
             self.logger.warning("Detected a release definition already exists: {name}".format(
                                 name=self.release_definition_name))
 
-
         # Check if a release is automatically triggered. If not, create a new release.
         time.sleep(RELEASE_COMPOSITION_DELAY)
         release = self.adbp.get_latest_release(self.organization_name, self.project_name, self.release_definition_name)
@@ -685,8 +685,8 @@ class AzureDevopsBuildInteractive(object):
                 raise CLIError("Sorry, your release has failed in Azure Devops.{ls}"
                                "To view details on why your release has failed please visit "
                                "https://dev.azure.com/{org}/{proj}/_release".format(
-                                  ls=os.linesep, org=self.organization_name, proj=self.project_name
-                              ))
+                                   ls=os.linesep, org=self.organization_name, proj=self.project_name
+                               ))
 
         self.logger.warning("To follow the release process go to "
                             "https://dev.azure.com/{org}/{proj}/_releaseProgress?"
@@ -696,7 +696,6 @@ class AzureDevopsBuildInteractive(object):
                                 release_id=release.id
                             ))
         return
-
 
     def _check_if_force_push_required(self, remote_url, remote_branches):
         force_push_required = False
