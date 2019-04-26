@@ -112,6 +112,7 @@ class AzureDevopsBuildInteractive(object):
         self.process_extensions()
         self.process_build_and_release_definition_name('AZURE_DEVOPS')
         self.process_build('AZURE_DEVOPS')
+        self.wait_for_build()
         self.process_release()
         self.logger.warning("To trigger a function build again, please use 'git push {remote} master'".format(
             remote=self.repository_remote_name
@@ -144,6 +145,7 @@ class AzureDevopsBuildInteractive(object):
         self.process_extensions()
         self.process_build_and_release_definition_name('GITHUB_INTEGRATION')
         self.process_build('GITHUB_INTEGRATION')
+        self.wait_for_build()
         self.process_release()
         self.logger.warning("Setup continuous integration between {github_repo} and Azure DevOps pipelines".format(
             github_repo=self.github_repository
@@ -609,18 +611,23 @@ class AzureDevopsBuildInteractive(object):
         )
         self.logger.warning("To follow the build process go to {url}".format(url=url))
 
-    def process_release(self):
-        # wait for artifacts / build to complete
+    def wait_for_build(self):
         counter = 0
         build = None
+        prev_log_status = None
         while build is None or build.result is None:
             time.sleep(5)
             build = self._get_build_by_id(self.organization_name, self.project_name, self.build.id)
-            self.logger.warning("building artifacts ... {counter}s ({status})".format(
-                counter=counter,
-                status=build.status
-            ))
-            counter += 5
+            curr_log_status = self.adbp.get_build_logs_status(self.organization_name, self.project_name, self.build.id)
+            log_content = self.adbp.get_build_logs_content_from_statuses(
+                organization_name=self.organization_name,
+                project_name=self.project_name,
+                build_id=self.build.id,
+                prev_log=prev_log_status,
+                curr_log=curr_log_status
+            )
+            self.logger.warning(log_content)
+            prev_log_status = curr_log_status
 
         if build.result == 'failed':
             url = "https://dev.azure.com/{org}/{proj}/_build/results?buildId={build_id}".format(
@@ -635,6 +642,7 @@ class AzureDevopsBuildInteractive(object):
         if build.result == 'succeeded':
             self.logger.warning("Your build has completed. Composing a release definition...")
 
+    def process_release(self):
         # need to check if the release definition already exists
         release_definitions = self.adbp.list_release_definitions(self.organization_name, self.project_name)
         release_definition_match = [
