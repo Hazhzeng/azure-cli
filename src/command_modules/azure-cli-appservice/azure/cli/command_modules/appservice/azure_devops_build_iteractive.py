@@ -257,7 +257,7 @@ class AzureDevopsBuildInteractive(object):
     def process_organization(self):
         """Helper to retrieve information about an organization / create a new one"""
         if self.organization_name is None:
-            response = prompt_y_n('Would you like to use an existing Azure Devops organization? ')
+            response = prompt_y_n('Would you like to use an existing Azure DevOps organization? ')
             if response:
                 self._select_organization()
             else:
@@ -272,7 +272,7 @@ class AzureDevopsBuildInteractive(object):
         if (self.project_name is None) and (self.created_organization):
             self._create_project()
         elif self.project_name is None:
-            use_existing_project = prompt_y_n('Would you like to use an existing Azure Devops project? ')
+            use_existing_project = prompt_y_n('Would you like to use an existing Azure DevOps project? ')
             if use_existing_project:
                 self._select_project()
             else:
@@ -391,7 +391,7 @@ class AzureDevopsBuildInteractive(object):
 
         # Collect repository name on Azure Devops
         if not self.repository_name:
-            self.repository_name = prompt("Push to which Azure Devops repository (default: {repo}): ".format(
+            self.repository_name = prompt("Push to which Azure DevOps repository (default: {repo}): ".format(
                 repo=self.project_name
             ))
             if not self.repository_name:  # Select default value
@@ -418,7 +418,7 @@ class AzureDevopsBuildInteractive(object):
         )
         if has_local_git_remote:
             raise CLIError("There's a git remote bound to {url}.{ls}"
-                           "To update the repository and trigger an Azure Devops build, please use "
+                           "To update the repository and trigger an Azure DevOps build, please use "
                            "'git push {remote} master'".format(
                                url=expected_remote_url,
                                remote=expected_remote_name,
@@ -535,7 +535,8 @@ class AzureDevopsBuildInteractive(object):
         # If there is no matching service endpoint, we need to create a new one
         if not service_endpoints:
             try:
-                self.logger.warning("Creating a service principle for function app release. Please wait.")
+                self.logger.warning("Creating a service principle for function app release.")
+                self.logger.warning("This may take a few minutes. Please wait.")
                 service_endpoint = self.adbp.create_service_endpoint(
                     self.organization_name, self.project_name, repository
                 )
@@ -624,6 +625,7 @@ class AzureDevopsBuildInteractive(object):
         build = None
         prev_log_status = None
 
+        self.logger.info("========== Build Log ==========")
         while build is None or build.result is None:
             time.sleep(BUILD_QUERY_FREQUENCY)
             build = self._get_build_by_id(self.organization_name, self.project_name, self.build.id)
@@ -648,7 +650,7 @@ class AzureDevopsBuildInteractive(object):
                 proj=self.project_name,
                 build_id=build.id
             )
-            raise CLIError("Sorry, your build has failed in Azure Devops.{ls}"
+            raise CLIError("Sorry, your build has failed in Azure DevOps.{ls}"
                            "To view details on why your build has failed please visit {url}".format(
                                url=url, ls=os.linesep
                            ))
@@ -682,7 +684,7 @@ class AzureDevopsBuildInteractive(object):
             try:
                 release = self.adbp.create_release(self.organization_name, self.project_name, self.release_definition_name)
             except ReleaseErrorException:
-                raise CLIError("Sorry, your release has failed in Azure Devops.{ls}"
+                raise CLIError("Sorry, your release has failed in Azure DevOps.{ls}"
                                "To view details on why your release has failed please visit "
                                "https://dev.azure.com/{org}/{proj}/_release".format(
                                    ls=os.linesep, org=self.organization_name, proj=self.project_name
@@ -708,7 +710,7 @@ class AzureDevopsBuildInteractive(object):
             ))
 
             if self.allow_force_push is None:
-                consent = prompt_y_n("I consent to force push all local branches to Azure Devops repository")
+                consent = prompt_y_n("I consent to force push all local branches to Azure DevOps repository")
             else:
                 consent = str2bool(self.allow_force_push)
 
@@ -730,7 +732,7 @@ class AzureDevopsBuildInteractive(object):
             org=self.organization_name,
         ))
         self.logger.warning('Check "Enable alternate authentication credentials" and save your username and password.')
-        self.logger.warning("You may need to use this credential when pushing your code to Azure Devops repository.")
+        self.logger.warning("You may need to use this credential when pushing your code to Azure DevOps repository.")
         consent = prompt_y_n("I have setup alternative authentication credentials for {repo}".format(
             repo=self.repository_name
         ))
@@ -909,7 +911,7 @@ class CmdSelectors(object):
                              if functionapp.name == functionapp_name]
         if not functionapp_match:
             raise CLIError("Error finding functionapp. "
-                           "Please check that the functionapp exists using 'az functionapp list")
+                           "Please check that the functionapp exists using 'az functionapp list'")
 
         return functionapp_match[0]
 
@@ -919,7 +921,7 @@ class CmdSelectors(object):
                               if organization.accountName == organization_name]
         if not organization_match:
             raise CLIError("Error finding organization. "
-                           "Please check that the organization exists by logging onto your dev.azure.com acocunt")
+                           "Please check that the organization exists by logging onto your dev.azure.com account")
 
         return organization_match[0]
 
@@ -930,6 +932,6 @@ class CmdSelectors(object):
 
         if not project_match:
             raise CLIError("Error finding project. "
-                           "Please check that the project exists by logging onto your dev.azure.com acocunt")
+                           "Please check that the project exists by logging onto your dev.azure.com account")
 
         return project_match[0]
