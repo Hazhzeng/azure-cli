@@ -3,21 +3,21 @@
 # Licensed under the MIT License. See License.txt in the project root for license information.
 # --------------------------------------------------------------------------------------------
 
-from azure_functions_devops_build.organization.organization_manager import OrganizationManager
-from azure_functions_devops_build.project.project_manager import ProjectManager
-from azure_functions_devops_build.yaml.yaml_manager import YamlManager
-from azure_functions_devops_build.repository.repository_manager import RepositoryManager
-from azure_functions_devops_build.pool.pool_manager import PoolManager
-from azure_functions_devops_build.service_endpoint.service_endpoint_manager import ServiceEndpointManager
-from azure_functions_devops_build.extension.extension_manager import ExtensionManager
-from azure_functions_devops_build.builder.builder_manager import BuilderManager
-from azure_functions_devops_build.artifact.artifact_manager import ArtifactManager
-from azure_functions_devops_build.release.release_manager import ReleaseManager
-
-from azure_functions_devops_build.yaml.github_yaml_manager import GithubYamlManager
-from azure_functions_devops_build.repository.github_repository_manager import GithubRepositoryManager
-from azure_functions_devops_build.user.github_user_manager import GithubUserManager
-from azure_functions_devops_build.service_endpoint.github_service_endpoint_manager import GithubServiceEndpointManager
+from azure_functions_devops_build.managers import (
+	OrganizationManager,
+	ProjectManager,
+	YamlManager,
+	RepositoryManager,
+	PoolManager,
+	ServiceEndpointManager,
+	ExtensionManager,
+	BuilderManager,
+	ArtifactManager,
+	ReleaseManager,
+	GithubYamlManager,
+	GithubRepositoryManager,
+	GithubUserManager,
+	GithubServiceEndpointManager)
 
 from azure.cli.core._profile import Profile
 
